@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "../../../ESP32"
+		},
+		{
+			"name": "ESP32 Test",
+			"path": "."
+		},
+		{
+			"path": "../../../Instrument Panel Business/Roundie/Gauge Face Design Tools"
+		}
+	],
+	"settings": {
+		"chat.tools.terminal.autoApprove": {
+			"C:\\Users\\125jd\\.platformio\\penv\\Scripts\\platformio.exe": true
+		}
+	}
+}
