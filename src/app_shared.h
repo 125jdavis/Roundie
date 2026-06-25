@@ -5,6 +5,7 @@
 #include "driver/twai.h"
 #include "Arduino_GFX_Library.h"
 #include "lvgl.h"
+#include "SensorQMI8658.hpp"
 #include "TouchDrvCSTXXX.hpp"
 
 namespace AppConfig {
@@ -43,6 +44,14 @@ static constexpr uint32_t DOUBLE_TAP_GAP_MS = 350;
 static constexpr uint32_t TAP_MAX_DURATION_MS = 280;
 static constexpr int TAP_MAX_MOVE_PX = 18;
 static constexpr int DOUBLE_TAP_MAX_DIST_PX = 36;
+static constexpr uint32_t GFORCE_TICK_MS = 33;
+static constexpr uint32_t GFORCE_CAN_TIMEOUT_MS = 1200;
+static constexpr float GFORCE_MS2_PER_G = 9.80665f;
+static constexpr float GFORCE_MAX_G = 1.33f;
+static constexpr float GFORCE_EDGE_RADIUS_PX = 233.0f;
+static constexpr uint16_t GFORCE_ENVELOPE_BINS = 120;
+static constexpr float GFORCE_DEMO_PERIOD_X_MS = 3200.0f;
+static constexpr float GFORCE_DEMO_PERIOD_Y_MS = 4600.0f;
 static constexpr uint32_t BOOST_CAN_TIMEOUT_MS = 500;
 static constexpr float ATMOSPHERIC_KPA = 101.325f;
 static constexpr float KPA_TO_PSI = 0.1450377f;
@@ -74,10 +83,14 @@ static constexpr uint32_t BOOT_SPLASH_MS = BOOT_SPLASH_PLAY_MS + BOOT_SPLASH_HOL
 enum DemoScreen : uint8_t {
     DEMO_GAUGE = 0,
     DEMO_BOOSTAFR = 1,
-    DEMO_DATA = 2,
-    DEMO_WATCH = 3,
-    DEMO_CANDBG = 4,
-    DEMO_SCREEN_COUNT = 5
+    DEMO_DATA1 = 2,
+    DEMO_DATA2 = 3,
+    DEMO_DATA3 = 4,
+    DEMO_DATA4 = 5,
+    DEMO_WATCH = 6,
+    DEMO_CANDBG = 7,
+    DEMO_GFORCE = 8,
+    DEMO_SCREEN_COUNT = 9
 };
 
 enum CanBitrateProfile : uint8_t {
@@ -87,11 +100,26 @@ enum CanBitrateProfile : uint8_t {
     CAN_RATE_COUNT
 };
 
+enum CanDatabase : uint8_t {
+    CAN_DB_HALTECH_PROTOCOL = 0,
+    CAN_DB_DANIEL_IKE_GAUGE,
+    CAN_DB_MEGASQUIRT_PLACEHOLDER,
+    CAN_DB_OBD2_PLACEHOLDER,
+    CAN_DB_COUNT
+};
+
+namespace AppConfig {
+static constexpr CanDatabase DEFAULT_CAN_DATABASE = CAN_DB_HALTECH_PROTOCOL;
+}
+
 struct HaltechData {
     uint16_t rpm = 0;
     float map_kpa_abs = 0.0f;
     float tps_pct = 0.0f;
+    float battery_volts = 0.0f;
     float fuel_press_kpa = 0.0f;
+    float fuel_flow_cc_min = 0.0f;
+    float baro_kpa_abs = 0.0f;
     float oil_press_kpa = 0.0f;
     float lambda1 = 0.0f;
     float lambda2 = 0.0f;
@@ -100,16 +128,26 @@ struct HaltechData {
     float target_boost_kpa = 0.0f;
     float coolant_temp_c = 0.0f;
     float air_temp_c = 0.0f;
+    float ambient_temp_c = 0.0f;
     float fuel_temp_c = 0.0f;
     float oil_temp_c = 0.0f;
+    float fuel_comp_pct = 0.0f;
     float target_lambda = 0.0f;
+    float lateral_g_ms2 = 0.0f;
+    float longitudinal_g_ms2 = 0.0f;
     uint32_t last_0x360_ms = 0;
     uint32_t last_0x361_ms = 0;
+    uint32_t last_0x371_ms = 0;
+    uint32_t last_0x372_ms = 0;
+    uint32_t last_0x376_ms = 0;
     uint32_t last_0x368_ms = 0;
     uint32_t last_0x370_ms = 0;
-    uint32_t last_0x372_ms = 0;
+    uint32_t last_0x470_ms = 0;
     uint32_t last_0x3E0_ms = 0;
+    uint32_t last_0x3E1_ms = 0;
     uint32_t last_0x3E9_ms = 0;
+    uint32_t last_0x36B_ms = 0;
+    uint32_t last_0x36E_ms = 0;
 };
 
 struct PlatformState {
@@ -121,6 +159,8 @@ struct PlatformState {
     lv_indev_t *touch_indev = nullptr;
     Preferences prefs;
     TouchDrvCST92xx touch;
+    SensorQMI8658 imu;
+    bool imu_ready = false;
     int16_t tx[5] = {};
     int16_t ty[5] = {};
     char lvgl_buffer_mode[64] = {};
@@ -193,13 +233,79 @@ struct BoostAfrScreenState {
 };
 
 struct DataScreenState {
-    lv_obj_t *screen = nullptr;
-    lv_timer_t *timer = nullptr;
-    lv_obj_t *rpm_val_label = nullptr;
-    lv_obj_t *tps_val_label = nullptr;
-    lv_obj_t *coolant_val_label = nullptr;
-    lv_obj_t *speed_val_label = nullptr;
-    lv_obj_t *fuelpsi_val_label = nullptr;
+    lv_obj_t *screen1 = nullptr;
+    lv_obj_t *screen2 = nullptr;
+    lv_obj_t *screen3 = nullptr;
+    lv_obj_t *screen4 = nullptr;
+    lv_timer_t *timer1 = nullptr;
+    lv_timer_t *timer2 = nullptr;
+    lv_timer_t *timer3 = nullptr;
+    lv_timer_t *timer4 = nullptr;
+
+    bool demo_mode = false;
+    uint32_t demo_start_ms = 0;
+    uint32_t demo_last_step_ms = 0;
+    uint32_t demo_last_shift_ms = 0;
+    bool demo_shift_up = true;
+    float demo_rpm = 900.0f;
+    float demo_tps_pct = 8.0f;
+    float demo_speed_kph = 0.0f;
+    int16_t demo_gear = 0;
+    float demo_coolant_c = 88.0f;
+    float demo_iat_c = 30.0f;
+    float demo_ambient_c = 24.0f;
+    float demo_ethanol_pct = 70.0f;
+    float demo_fuel_press_kpa = 320.0f;
+    float demo_bap_kpa = 99.0f;
+    float demo_batt_v = 13.8f;
+    float demo_fuel_flow_cc_min = 180.0f;
+
+    lv_obj_t *s1_rpm_val_label = nullptr;
+    lv_obj_t *s1_tps_val_label = nullptr;
+    lv_obj_t *s1_coolant_val_label = nullptr;
+    lv_obj_t *s1_speed_val_label = nullptr;
+    lv_obj_t *s1_fuelpsi_val_label = nullptr;
+    lv_obj_t *s1_rpm_unit_label = nullptr;
+    lv_obj_t *s1_tps_unit_label = nullptr;
+    lv_obj_t *s1_coolant_unit_label = nullptr;
+    lv_obj_t *s1_speed_unit_label = nullptr;
+    lv_obj_t *s1_fuelpress_unit_label = nullptr;
+
+    lv_obj_t *s2_batt_val_label = nullptr;
+    lv_obj_t *s2_fuelpress_val_label = nullptr;
+    lv_obj_t *s2_bap_val_label = nullptr;
+    lv_obj_t *s2_ect_val_label = nullptr;
+    lv_obj_t *s2_iat_val_label = nullptr;
+    lv_obj_t *s2_ethanol_val_label = nullptr;
+    lv_obj_t *s2_batt_unit_label = nullptr;
+    lv_obj_t *s2_fuelpress_unit_label = nullptr;
+    lv_obj_t *s2_baro_unit_label = nullptr;
+    lv_obj_t *s2_ect_unit_label = nullptr;
+    lv_obj_t *s2_iat_unit_label = nullptr;
+    lv_obj_t *s2_ethanol_unit_label = nullptr;
+
+    lv_obj_t *s3_rpm_val_label = nullptr;
+    lv_obj_t *s3_speed_val_label = nullptr;
+    lv_obj_t *s3_tps_val_label = nullptr;
+    lv_obj_t *s3_gear_val_label = nullptr;
+    lv_obj_t *s3_rpm_unit_label = nullptr;
+    lv_obj_t *s3_speed_unit_label = nullptr;
+    lv_obj_t *s3_tps_unit_label = nullptr;
+
+    lv_obj_t *s4_ambient_val_label = nullptr;
+    lv_obj_t *s4_distance_val_label = nullptr;
+    lv_obj_t *s4_inst_fe_val_label = nullptr;
+    lv_obj_t *s4_accum_fe_val_label = nullptr;
+    lv_obj_t *s4_ambient_unit_label = nullptr;
+    lv_obj_t *s4_distance_unit_label = nullptr;
+    lv_obj_t *s4_inst_fe_unit_label = nullptr;
+    lv_obj_t *s4_trip_fe_unit_label = nullptr;
+    lv_obj_t *s4_inst_fe_arc = nullptr;
+    float s4_distance_km = 0.0f;
+    float s4_fuel_used_l = 0.0f;
+    float s4_inst_fe_visual = 0.0f;
+    uint32_t s4_last_integrate_ms = 0;
+    bool s4_visual_initialized = false;
 };
 
 struct CanDebugScreenState {
@@ -208,6 +314,48 @@ struct CanDebugScreenState {
     lv_obj_t *fps_label = nullptr;
     lv_obj_t *state_label = nullptr;
     lv_obj_t *ids_label = nullptr;
+};
+
+struct GForceScreenState {
+    lv_obj_t *screen = nullptr;
+    lv_timer_t *timer = nullptr;
+    lv_obj_t *dot = nullptr;
+    lv_obj_t *envelope_layer = nullptr;
+    lv_obj_t *mag_shadow_label = nullptr;
+    lv_obj_t *mag_label = nullptr;
+    lv_obj_t *mag_unit_shadow_label = nullptr;
+    lv_obj_t *mag_unit_label = nullptr;
+    lv_obj_t *config_screen = nullptr;
+    lv_obj_t *calibrate_screen = nullptr;
+    lv_obj_t *cfg_source_btn = nullptr;
+    lv_obj_t *cfg_source_btn_label = nullptr;
+    lv_obj_t *cfg_calibrate_btn = nullptr;
+    lv_obj_t *cfg_calibrate_btn_label = nullptr;
+    lv_obj_t *cal_question_label = nullptr;
+    lv_obj_t *cal_status_label = nullptr;
+    lv_obj_t *cal_yes_btn = nullptr;
+    lv_obj_t *cal_no_btn = nullptr;
+    lv_obj_t *crosshair_h = nullptr;
+    lv_obj_t *crosshair_v = nullptr;
+    lv_obj_t *rings[3] = {};
+    lv_point_t crosshair_h_pts[2] = {};
+    lv_point_t crosshair_v_pts[2] = {};
+    float envelope_radius_norm[AppConfig::GFORCE_ENVELOPE_BINS] = {};
+    int envelope_prev_bin = -1;
+    float envelope_prev_norm = 0.0f;
+    bool envelope_prev_valid = false;
+    bool demo_calibrated = false;
+    float demo_ax0 = 0.0f;
+    float demo_ay0 = 0.0f;
+    float demo_az0 = 0.0f;
+    bool demo_filter_valid = false;
+    float demo_lateral_filt = 0.0f;
+    float demo_longitudinal_filt = 0.0f;
+    bool demo_mode = false;
+    uint32_t demo_start_ms = 0;
+    bool envelope_dirty = true;
+    bool config_visible = false;
+    bool source_internal = false;
 };
 
 struct ScreenSlot {
@@ -231,6 +379,8 @@ struct NavigationState {
     uint32_t last_tap_ms = 0;
     int last_tap_x = 0;
     int last_tap_y = 0;
+    DemoScreen last_tap_screen = DEMO_SCREEN_COUNT;
+    uint8_t tap_streak_count = 0;
     int pending_screen = 0;
     bool pending_screen_change = false;
     DemoScreen current_demo = DEMO_GAUGE;
@@ -239,6 +389,7 @@ struct NavigationState {
 struct CanState {
     bool twai_ready = false;
     uint32_t boost_can_last_valid_ms = 0;
+    CanDatabase can_database = AppConfig::DEFAULT_CAN_DATABASE;
     CanBitrateProfile rate_profile = CAN_RATE_1M;
     bool driver_installed = false;
     uint32_t last_bus_error_count = 0;
@@ -258,6 +409,7 @@ struct AppContext {
     BoostAfrScreenState boostafr;
     DataScreenState data;
     CanDebugScreenState candbg;
+    GForceScreenState gforce;
 };
 
 inline float clampf(float value, float min_value, float max_value) {

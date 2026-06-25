@@ -38,6 +38,21 @@ bool platform_init(AppContext *app) {
     app->platform.touch.setMaxCoordinates(AppConfig::LCD_WIDTH, AppConfig::LCD_HEIGHT);
     app->platform.touch.setMirrorXY(true, true);
 
+    app->platform.imu_ready = app->platform.imu.begin(Wire, QMI8658_L_SLAVE_ADDRESS, AppConfig::IIC_SDA, AppConfig::IIC_SCL);
+    if (app->platform.imu_ready) {
+        bool configured = app->platform.imu.configAccelerometer(
+            SensorQMI8658::ACC_RANGE_4G,
+            SensorQMI8658::ACC_ODR_250Hz,
+            SensorQMI8658::LPF_MODE_3);
+        app->platform.imu_ready = configured && app->platform.imu.enableAccelerometer();
+    }
+
+    if (app->platform.imu_ready) {
+        Serial.println("IMU ready: QMI8658 accelerometer enabled");
+    } else {
+        Serial.println("IMU not available: g-force demo sensor input disabled");
+    }
+
     app->platform.bus = new Arduino_ESP32QSPI(
         AppConfig::LCD_CS,
         AppConfig::LCD_SCLK,

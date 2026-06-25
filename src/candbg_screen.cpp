@@ -23,15 +23,15 @@ static void tick_candbg(lv_timer_t *timer) {
             case TWAI_STATE_RECOVERING: state_str = "RECOVERING"; break;
         }
 
-        snprintf(buf, sizeof(buf), "State: %s @%s  RX err: %lu",
+        snprintf(buf, sizeof(buf), "State: %s @%s [%s]",
                  state_str,
                  can_rate_profile_text(app->can.rate_profile),
-                 (unsigned long)status.rx_error_counter);
+                 can_database_text(app->can.can_database));
         lv_label_set_text(app->candbg.state_label, buf);
 
-        snprintf(buf, sizeof(buf), "TX err: %lu  Arb lost: %lu\nRX miss: %lu  Bus err: %lu",
+        snprintf(buf, sizeof(buf), "RX err: %lu  TX err: %lu\nRX miss: %lu  Bus err: %lu",
+                 (unsigned long)status.rx_error_counter,
                  (unsigned long)status.tx_error_counter,
-                 (unsigned long)status.arb_lost_count,
                  (unsigned long)status.rx_missed_count,
                  (unsigned long)status.bus_error_count);
         lv_label_set_text(app->candbg.ids_label, buf);

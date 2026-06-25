@@ -3,7 +3,9 @@
 #include <stdlib.h>
 
 #include "boostafr_screen.h"
+#include "data_screen.h"
 #include "gauge_screen.h"
+#include "gforce_screen.h"
 
 static void enable_gesture_bubble_recursive(lv_obj_t *obj) {
     lv_obj_add_flag(obj, LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -66,6 +68,10 @@ void navigation_register_screen(AppContext *app, DemoScreen demo, lv_obj_t *scre
 
 void navigation_set_demo_screen(AppContext *app, DemoScreen target, lv_scr_load_anim_t anim) {
     if (target == app->nav.current_demo) return;
+
+    app->nav.last_tap_ms = 0;
+    app->nav.tap_streak_count = 0;
+    app->nav.last_tap_screen = DEMO_SCREEN_COUNT;
 
     for (int i = 0; i < DEMO_SCREEN_COUNT; i++) {
         pause_slot_timers(app->nav.slots[i]);
@@ -140,6 +146,13 @@ void navigation_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *dat
             int ady = abs(dy);
             uint32_t press_ms = release_ms - app->nav.touch_start_ms;
 
+            if (app->nav.current_demo == DEMO_GFORCE && gforce_is_config_visible(app)) {
+                app->nav.last_tap_ms = 0;
+                app->nav.tap_streak_count = 0;
+                app->nav.touch_down = false;
+                return;
+            }
+
             if (adx > 70 && adx > (ady + 20)) {
                 if (dx < 0) {
                     app->nav.pending_screen = ((int)app->nav.current_demo + 1) % DEMO_SCREEN_COUNT;
@@ -147,6 +160,8 @@ void navigation_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *dat
                     app->nav.pending_screen = ((int)app->nav.current_demo + DEMO_SCREEN_COUNT - 1) % DEMO_SCREEN_COUNT;
                 }
                 app->nav.pending_screen_change = true;
+                app->nav.last_tap_ms = 0;
+                app->nav.tap_streak_count = 0;
             } else {
                 bool is_tap = (press_ms <= AppConfig::TAP_MAX_DURATION_MS) &&
                               (adx <= AppConfig::TAP_MAX_MOVE_PX) &&
@@ -158,18 +173,45 @@ void navigation_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *dat
                     int tap_dist_sq = tdx * tdx + tdy * tdy;
                     int max_dist_sq = AppConfig::DOUBLE_TAP_MAX_DIST_PX * AppConfig::DOUBLE_TAP_MAX_DIST_PX;
 
-                    if (app->nav.last_tap_ms > 0 && tap_gap <= AppConfig::DOUBLE_TAP_GAP_MS && tap_dist_sq <= max_dist_sq) {
-                        if (app->nav.current_demo == DEMO_BOOSTAFR) {
-                            boostafr_toggle_demo(app, release_ms);
+                    bool in_streak = app->nav.last_tap_ms > 0 &&
+                                     app->nav.last_tap_screen == app->nav.current_demo &&
+                                     tap_gap <= AppConfig::DOUBLE_TAP_GAP_MS &&
+                                     tap_dist_sq <= max_dist_sq;
+                    app->nav.tap_streak_count = in_streak ? (uint8_t)(app->nav.tap_streak_count + 1) : 1;
+
+                    if (app->nav.current_demo == DEMO_GFORCE) {
+                        if (app->nav.tap_streak_count == 2) {
+                            gforce_handle_double_tap(app);
+                            app->nav.last_tap_ms = 0;
+                            app->nav.tap_streak_count = 0;
                         } else {
-                            gauge_set_profiler_visible(app, !app->gauge.profiler_visible);
+                            app->nav.last_tap_ms = release_ms;
+                            app->nav.last_tap_x = app->nav.touch_last_x;
+                            app->nav.last_tap_y = app->nav.touch_last_y;
+                            app->nav.last_tap_screen = app->nav.current_demo;
                         }
-                        app->nav.last_tap_ms = 0;
                     } else {
-                        app->nav.last_tap_ms = release_ms;
-                        app->nav.last_tap_x = app->nav.touch_last_x;
-                        app->nav.last_tap_y = app->nav.touch_last_y;
+                        if (app->nav.tap_streak_count == 2) {
+                            if (app->nav.current_demo == DEMO_BOOSTAFR) {
+                                boostafr_toggle_demo(app, release_ms);
+                            } else if (app->nav.current_demo >= DEMO_DATA1 && app->nav.current_demo <= DEMO_DATA4) {
+                                data_toggle_demo(app, release_ms);
+                            } else {
+                                gauge_set_profiler_visible(app, !app->gauge.profiler_visible);
+                            }
+                            app->nav.last_tap_ms = 0;
+                            app->nav.tap_streak_count = 0;
+                        } else {
+                            app->nav.last_tap_ms = release_ms;
+                            app->nav.last_tap_x = app->nav.touch_last_x;
+                            app->nav.last_tap_y = app->nav.touch_last_y;
+                            app->nav.last_tap_screen = app->nav.current_demo;
+                        }
                     }
+                } else {
+                    app->nav.last_tap_ms = 0;
+                    app->nav.tap_streak_count = 0;
+                    app->nav.last_tap_screen = DEMO_SCREEN_COUNT;
                 }
             }
         }
