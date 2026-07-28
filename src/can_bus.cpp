@@ -260,6 +260,10 @@ static bool process_frame_by_database(AppContext *app, const twai_message_t &msg
     }
 }
 
+static bool demo_shift_light_active(const AppContext *app) {
+    return app->data.demo_mode && app->data.demo_rpm > 6000.0f;
+}
+
 static void can_try_autoscan(AppContext *app, uint32_t now_ms);
 
 static void can_restart_driver(AppContext *app) {
@@ -311,7 +315,7 @@ void can_init(AppContext *app) {
 void can_poll(AppContext *app, uint32_t now_ms) {
     if (!app->can.twai_ready) {
         app->can.boost_psi = 0.0f;
-        app->can.shift_light_active = false;
+        app->can.shift_light_active = demo_shift_light_active(app);
         return;
     }
 
@@ -332,6 +336,9 @@ void can_poll(AppContext *app, uint32_t now_ms) {
     if (got_boost) {
         app->can.boost_psi = latest_psi;
         app->can.boost_can_last_valid_ms = now_ms;
+        app->can.shift_light_active = demo_shift_light_active(app)
+                                      ? true
+                                      : app->can.ht.shift_light_active;
         return;
     }
 
@@ -340,7 +347,9 @@ void can_poll(AppContext *app, uint32_t now_ms) {
         app->can.boost_psi = 0.0f;
     }
 
-    app->can.shift_light_active = app->can.ht.shift_light_active;
+    app->can.shift_light_active = demo_shift_light_active(app)
+                                  ? true
+                                  : app->can.ht.shift_light_active;
 
     can_try_autoscan(app, now_ms);
 }

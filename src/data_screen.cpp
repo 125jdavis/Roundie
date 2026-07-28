@@ -19,7 +19,7 @@ static constexpr int BELOW_DV_UNIT_GAP_DRIVING = -8;
 static constexpr int VALUE_NUDGE_Y = 3;
 static constexpr int UNIT_GAP_PX = 3;
 static constexpr float DEMO_RPM_MIN = 750.0f;
-static constexpr float DEMO_RPM_MAX = 6500.0f;
+static constexpr float DEMO_RPM_MAX = 7500.0f;
 static constexpr float DEMO_SPEED_MIN = 0.0f;
 static constexpr float DEMO_SPEED_MAX = 220.0f;
 static constexpr float DEMO_TPS_MIN = 0.0f;
@@ -48,6 +48,7 @@ static constexpr float DEMO_TEMP_RATE_MAX = 1.0f;
 static constexpr float DEMO_ETHANOL_RATE_MAX = 1.0f;
 static constexpr float DEMO_BATT_RATE_MAX = 1.0f;
 static constexpr float DEMO_FUEL_FLOW_RATE_MAX = 300.0f;
+static constexpr uint32_t DEMO_RPM_RAMP_HALF_CYCLE_MS = 6000;
 
 static constexpr uint32_t DEMO_GEAR_SHIFT_MS = 3000;
 
@@ -139,7 +140,15 @@ static void update_data_demo_state(AppContext *app, uint32_t now_ms) {
     float dt_s = (float)dt_ms * 0.001f;
     float t = (float)(now_ms - data.demo_start_ms) * 0.001f;
 
-    float rpm_target = 850.0f + (0.5f + 0.5f * sinf(t * 0.75f)) * 4300.0f;
+    uint32_t rpm_cycle_ms = DEMO_RPM_RAMP_HALF_CYCLE_MS * 2U;
+    uint32_t rpm_phase_ms = (now_ms - data.demo_start_ms) % rpm_cycle_ms;
+    float rpm_t = 0.0f;
+    if (rpm_phase_ms < DEMO_RPM_RAMP_HALF_CYCLE_MS) {
+        rpm_t = (float)rpm_phase_ms / (float)DEMO_RPM_RAMP_HALF_CYCLE_MS;
+    } else {
+        rpm_t = (float)(rpm_cycle_ms - rpm_phase_ms) / (float)DEMO_RPM_RAMP_HALF_CYCLE_MS;
+    }
+    float rpm_target = DEMO_RPM_MIN + rpm_t * (DEMO_RPM_MAX - DEMO_RPM_MIN);
     float speed_target = (0.5f + 0.5f * sinf(t * 0.42f - 0.6f)) * 165.0f;
     float tps_target = 4.0f + (0.5f + 0.5f * sinf(t * 1.25f + 0.8f)) * 76.0f;
     float coolant_target = 88.0f + 5.0f * sinf(t * 0.06f);
@@ -150,7 +159,7 @@ static void update_data_demo_state(AppContext *app, uint32_t now_ms) {
     float bap_target = 99.0f + 1.8f * sinf(t * 0.16f);
     float batt_target = 13.9f + 0.35f * sinf(t * 0.20f);
 
-    data.demo_rpm = rate_limit_toward(data.demo_rpm, rpm_target, DEMO_RPM_RATE_MAX, dt_s);
+    data.demo_rpm = rpm_target;
     data.demo_speed_kph = rate_limit_toward(data.demo_speed_kph, speed_target, DEMO_SPEED_RATE_MAX, dt_s);
     data.demo_tps_pct = rate_limit_toward(data.demo_tps_pct, tps_target, DEMO_TPS_RATE_MAX, dt_s);
     data.demo_coolant_c = rate_limit_toward(data.demo_coolant_c, coolant_target, DEMO_TEMP_RATE_MAX, dt_s);
