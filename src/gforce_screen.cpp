@@ -471,19 +471,19 @@ lv_obj_t *create_gforce_screen(AppContext *app) {
     app->gforce.mag_shadow_label = lv_label_create(screen);
     lv_obj_set_style_text_color(app->gforce.mag_shadow_label, lv_color_hex(0x000000), 0);
     lv_obj_set_style_text_opa(app->gforce.mag_shadow_label, (lv_opa_t)219, 0);
-    lv_obj_set_style_text_font(app->gforce.mag_shadow_label, &lv_font_montserrat_64, 0);
-    lv_obj_set_style_text_letter_space(app->gforce.mag_shadow_label, 1, 0);
-    lv_obj_set_width(app->gforce.mag_shadow_label, 280);
+    lv_obj_set_style_text_font(app->gforce.mag_shadow_label, &lv_font_montserrat_medium_72, 0);
+    lv_obj_set_style_text_letter_space(app->gforce.mag_shadow_label, 0, 0);
+    lv_obj_set_width(app->gforce.mag_shadow_label, 320);
     lv_obj_set_style_text_align(app->gforce.mag_shadow_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(app->gforce.mag_shadow_label, LV_ALIGN_BOTTOM_MID, 5, -96);
+    lv_obj_align(app->gforce.mag_shadow_label, LV_ALIGN_CENTER, 5, 144);
     lv_label_set_text(app->gforce.mag_shadow_label, "--.--");
 
     app->gforce.mag_label = lv_label_create(screen);
     lv_obj_set_style_text_color(app->gforce.mag_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(app->gforce.mag_label, &lv_font_montserrat_64, 0);
-    lv_obj_set_width(app->gforce.mag_label, 280);
+    lv_obj_set_style_text_font(app->gforce.mag_label, &lv_font_montserrat_medium_72, 0);
+    lv_obj_set_width(app->gforce.mag_label, 320);
     lv_obj_set_style_text_align(app->gforce.mag_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(app->gforce.mag_label, LV_ALIGN_BOTTOM_MID, 0, -100);
+    lv_obj_align(app->gforce.mag_label, LV_ALIGN_CENTER, 0, 140);
     lv_label_set_text(app->gforce.mag_label, "--.--");
 
     app->gforce.mag_unit_shadow_label = lv_label_create(screen);
@@ -493,7 +493,7 @@ lv_obj_t *create_gforce_screen(AppContext *app) {
     lv_obj_set_style_text_letter_space(app->gforce.mag_unit_shadow_label, 1, 0);
     lv_obj_set_width(app->gforce.mag_unit_shadow_label, 240);
     lv_obj_set_style_text_align(app->gforce.mag_unit_shadow_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(app->gforce.mag_unit_shadow_label, LV_ALIGN_BOTTOM_MID, 5, -22);
+    lv_obj_align(app->gforce.mag_unit_shadow_label, LV_ALIGN_CENTER, 5, 202);
     lv_label_set_text(app->gforce.mag_unit_shadow_label, "G-Force");
 
     app->gforce.mag_unit_label = lv_label_create(screen);
@@ -501,7 +501,7 @@ lv_obj_t *create_gforce_screen(AppContext *app) {
     lv_obj_set_style_text_font(app->gforce.mag_unit_label, &lv_font_montserrat_32, 0);
     lv_obj_set_width(app->gforce.mag_unit_label, 240);
     lv_obj_set_style_text_align(app->gforce.mag_unit_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(app->gforce.mag_unit_label, LV_ALIGN_BOTTOM_MID, 0, -26);
+    lv_obj_align(app->gforce.mag_unit_label, LV_ALIGN_CENTER, 0, 198);
     lv_label_set_text(app->gforce.mag_unit_label, "G-Force");
 
     lv_obj_move_foreground(app->gforce.dot);

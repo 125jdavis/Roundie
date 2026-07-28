@@ -31,6 +31,14 @@ static constexpr float BOOST_MAX = 30.0f;
 static constexpr float BOOST_SWEEP_DEG = 270.0f;
 static constexpr float BOOST_START_DEG = 135.0f;
 static constexpr float BOOST_RANGE = BOOST_MAX - BOOST_MIN;
+static constexpr float ALT_BOOST_PSI_MAX = 20.0f;
+static constexpr float ALT_BOOST_INHG_MAX = 30.0f;
+static constexpr float ALT_BOOST_INHG_PER_PSI = 2.03602f;
+static constexpr float ALT_BOOST_MARKER_TRIGGER_PSI = 5.0f;
+static constexpr uint32_t ALT_BOOST_MARKER_HOLD_MS = 3000;
+static constexpr uint32_t ALT_BOOST_MARKER_HIDE_MS = 3000;
+static constexpr float ALT_BOOST_MARKER_DECAY_DPS = 30.0f;
+static constexpr uint32_t ALT_BOOST_DEMO_PERIOD_MS = 14000;
 static constexpr int NEEDLE_CANVAS_SIZE = 360;
 static constexpr uint32_t GAUGE_TICK_MS = 5;
 static constexpr float NEEDLE_REDRAW_THRESHOLD_DEG = 0.16f;
@@ -83,14 +91,16 @@ static constexpr uint32_t BOOT_SPLASH_MS = BOOT_SPLASH_PLAY_MS + BOOT_SPLASH_HOL
 enum DemoScreen : uint8_t {
     DEMO_GAUGE = 0,
     DEMO_BOOSTAFR = 1,
-    DEMO_DATA1 = 2,
-    DEMO_DATA2 = 3,
-    DEMO_DATA3 = 4,
-    DEMO_DATA4 = 5,
-    DEMO_WATCH = 6,
-    DEMO_CANDBG = 7,
-    DEMO_GFORCE = 8,
-    DEMO_SCREEN_COUNT = 9
+    DEMO_ALTBOOST = 2,
+    DEMO_ALTBOOST_COMBO = 3,
+    DEMO_DATA1 = 4,
+    DEMO_DATA2 = 5,
+    DEMO_DATA3 = 6,
+    DEMO_DATA4 = 7,
+    DEMO_WATCH = 8,
+    DEMO_CANDBG = 9,
+    DEMO_GFORCE = 10,
+    DEMO_SCREEN_COUNT = 11
 };
 
 enum CanBitrateProfile : uint8_t {
@@ -132,7 +142,11 @@ struct HaltechData {
     float fuel_temp_c = 0.0f;
     float oil_temp_c = 0.0f;
     float fuel_comp_pct = 0.0f;
+    float trip_distance_km = 0.0f;
+    float inst_fuel_per_100km = 0.0f;
+    float trip_fuel_per_100km = 0.0f;
     float target_lambda = 0.0f;
+    bool shift_light_active = false;
     float lateral_g_ms2 = 0.0f;
     float longitudinal_g_ms2 = 0.0f;
     uint32_t last_0x360_ms = 0;
@@ -145,6 +159,7 @@ struct HaltechData {
     uint32_t last_0x470_ms = 0;
     uint32_t last_0x3E0_ms = 0;
     uint32_t last_0x3E1_ms = 0;
+    uint32_t last_0x3E4_ms = 0;
     uint32_t last_0x3E9_ms = 0;
     uint32_t last_0x36B_ms = 0;
     uint32_t last_0x36E_ms = 0;
@@ -206,6 +221,57 @@ struct GaugeScreenState {
     uint64_t flush_us_accum = 0;
     bool profiler_visible = false;
     float boost_psi_visual = 0.0f;
+};
+
+struct AlternateBoostScreenState {
+    lv_obj_t *screen = nullptr;
+    lv_color_t *gauge_bg_buf = nullptr;
+    lv_obj_t *needle_obj = nullptr;
+    lv_obj_t *needle_pivot = nullptr;
+    lv_obj_t *boost_title_label = nullptr;
+    lv_obj_t *value_label = nullptr;
+    lv_obj_t *unit_label = nullptr;
+    lv_obj_t *max_marker = nullptr;
+    lv_timer_t *timer = nullptr;
+    lv_coord_t needle_pivot_x_local = 0;
+    lv_coord_t needle_pivot_y_local = 0;
+    uint32_t value_label_last_ms = 0;
+    uint32_t needle_frame_last_ms = 0;
+    float boost_psi_visual = 0.0f;
+    float needle_last_drawn_angle_deg = NAN;
+    bool needle_last_area_valid = false;
+    lv_area_t needle_last_area = {};
+    bool marker_visible = false;
+    float marker_angle_deg = 0.0f;
+    float peak_angle_deg = 0.0f;
+    uint32_t marker_hold_until_ms = 0;
+    uint32_t below_threshold_start_ms = 0;
+    bool demo_mode = false;
+    uint32_t demo_start_ms = 0;
+};
+
+struct AltBoostComboScreenState {
+    lv_obj_t *screen = nullptr;
+    lv_obj_t *boost_arc = nullptr;
+    lv_obj_t *lambda_arc = nullptr;
+    lv_obj_t *boost_value_label = nullptr;
+    lv_obj_t *boost_unit_label = nullptr;
+    lv_obj_t *boost_title_label = nullptr;
+    lv_obj_t *lambda_value_label = nullptr;
+    lv_obj_t *lambda_title_label = nullptr;
+    lv_obj_t *boost_target_marker = nullptr;
+    lv_obj_t *lambda_target_marker = nullptr;
+    lv_obj_t *ghost_line_obj = nullptr;
+    lv_timer_t *timer = nullptr;
+    uint32_t visual_last_ms = 0;
+    float boost_visual_psi = 0.0f;
+    float lambda_visual = 1.0f;
+    bool visual_initialized = false;
+    bool ghost_visible = false;
+    float ghost_psi = 0.0f;
+    uint32_t ghost_hold_until_ms = 0;
+    bool demo_mode = false;
+    uint32_t demo_start_ms = 0;
 };
 
 struct BoostAfrScreenState {
@@ -301,6 +367,7 @@ struct DataScreenState {
     lv_obj_t *s4_inst_fe_unit_label = nullptr;
     lv_obj_t *s4_trip_fe_unit_label = nullptr;
     lv_obj_t *s4_inst_fe_arc = nullptr;
+    lv_obj_t *s4_trip_fe_marker = nullptr;
     float s4_distance_km = 0.0f;
     float s4_fuel_used_l = 0.0f;
     float s4_inst_fe_visual = 0.0f;
@@ -397,6 +464,7 @@ struct CanState {
     volatile uint32_t frames_since_last_sample = 0;
     float fps_display = 0.0f;
     float boost_psi = 0.0f;
+    bool shift_light_active = false;
     HaltechData ht = {};
 };
 
@@ -406,6 +474,8 @@ struct AppContext {
     CanState can;
     WatchScreenState watch;
     GaugeScreenState gauge;
+    AlternateBoostScreenState alt_boost;
+    AltBoostComboScreenState alt_boost_combo;
     BoostAfrScreenState boostafr;
     DataScreenState data;
     CanDebugScreenState candbg;
@@ -436,6 +506,11 @@ LV_FONT_DECLARE(lv_font_montserrat_64);
 LV_FONT_DECLARE(lv_font_montserrat_72);
 LV_FONT_DECLARE(lv_font_montserrat_medium_60);
 LV_FONT_DECLARE(lv_font_montserrat_medium_72);
+LV_FONT_DECLARE(lv_font_montserrat_medium_84);
+LV_FONT_DECLARE(lv_font_montserrat_semibold_40);
+LV_FONT_DECLARE(lv_font_montserrat_semibold_72);
+LV_FONT_DECLARE(lv_font_montserrat_semibold_64);
+LV_FONT_DECLARE(lv_font_montserrat_semibold_84);
 LV_IMG_DECLARE(supra_light_sweep_v3_gif);
 lv_obj_t *lv_gif_create(lv_obj_t *parent);
 void lv_gif_set_src(lv_obj_t *obj, const void *src);

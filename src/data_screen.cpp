@@ -6,7 +6,16 @@
 static constexpr uint32_t DATA_FAST_TIMEOUT_MS = 1200;
 static constexpr uint32_t DATA_MED_TIMEOUT_MS = 2500;
 static constexpr uint32_t DATA_SLOW_TIMEOUT_MS = 3000;
-static constexpr float FE_ARC_MAX_KM_PER_L = 20.0f;
+static constexpr float FE_ARC_MAX_MPG = 40.0f;
+static constexpr int FE_BAR_X = 58;
+static constexpr int FE_BAR_Y = 230;
+static constexpr int FE_BAR_W = 348;
+static constexpr int FE_BAR_H = 44;
+static constexpr int FE_MARKER_W = 28;
+static constexpr int FE_MARKER_H = 28;
+static constexpr int FE_MARKER_TOP_Y = 224;
+static constexpr int BELOW_DV_UNIT_GAP_ENGINE = -4;
+static constexpr int BELOW_DV_UNIT_GAP_DRIVING = -8;
 static constexpr int VALUE_NUDGE_Y = 3;
 static constexpr int UNIT_GAP_PX = 3;
 static constexpr float DEMO_RPM_MIN = 750.0f;
@@ -44,6 +53,27 @@ static constexpr uint32_t DEMO_GEAR_SHIFT_MS = 3000;
 
 static bool is_recent(uint32_t now, uint32_t ts, uint32_t timeout_ms) {
     return ts > 0 && (now - ts) < timeout_ms;
+}
+
+static float c_to_f(float temp_c) {
+    return temp_c * 1.8f + 32.0f;
+}
+
+static float km_to_miles(float km) {
+    return km * 0.621371f;
+}
+
+static float kph_to_mph(float kph) {
+    return km_to_miles(kph);
+}
+
+static float km_per_l_to_mpg(float km_per_l) {
+    return km_per_l * 2.3521458f;
+}
+
+static float l_per_100km_to_mpg(float l_per_100km) {
+    if (l_per_100km <= 0.0f) return 0.0f;
+    return 235.21458f / l_per_100km;
 }
 
 static float rate_limit_toward(float current, float target, float max_rate_per_sec, float dt_s) {
@@ -283,6 +313,59 @@ static void position_unit_right_of_value(lv_obj_t *value_label, lv_obj_t *unit_l
     lv_obj_set_pos(unit_label, unit_x, unit_y);
 }
 
+static void position_unit_right_of_value_with_y_offset(lv_obj_t *value_label, lv_obj_t *unit_label, lv_coord_t y_offset_px) {
+    if (!value_label || !unit_label) return;
+    const char *text = lv_label_get_text(value_label);
+    if (!text) text = "";
+
+    const lv_font_t *value_font = lv_obj_get_style_text_font(value_label, LV_PART_MAIN);
+    const lv_font_t *unit_font = lv_obj_get_style_text_font(unit_label, LV_PART_MAIN);
+    if (!value_font || !unit_font) return;
+
+    lv_coord_t letter_space = lv_obj_get_style_text_letter_space(value_label, LV_PART_MAIN);
+    lv_coord_t text_w = lv_txt_get_width(text, (uint32_t)strlen(text), value_font, letter_space, LV_TEXT_FLAG_NONE);
+
+    lv_coord_t value_x = lv_obj_get_x(value_label);
+    lv_coord_t value_y = lv_obj_get_y(value_label);
+    lv_coord_t value_w = lv_obj_get_width(value_label);
+    lv_coord_t value_line_h = lv_font_get_line_height(value_font);
+    lv_coord_t unit_line_h = lv_font_get_line_height(unit_font);
+
+    lv_coord_t unit_x = value_x + value_w / 2 + text_w / 2 + UNIT_GAP_PX;
+    lv_coord_t unit_y = value_y + value_line_h - unit_line_h + y_offset_px;
+    lv_obj_set_pos(unit_label, unit_x, unit_y);
+}
+
+static void position_unit_below_value_centered(lv_obj_t *value_label, lv_obj_t *unit_label, lv_coord_t gap_px) {
+    if (!value_label || !unit_label) return;
+    const lv_font_t *unit_font = lv_obj_get_style_text_font(unit_label, LV_PART_MAIN);
+    if (!unit_font) return;
+
+    lv_coord_t value_x = lv_obj_get_x(value_label);
+    lv_coord_t value_y = lv_obj_get_y(value_label);
+    lv_coord_t value_w = lv_obj_get_width(value_label);
+    lv_coord_t value_h = lv_obj_get_height(value_label);
+    lv_coord_t unit_w = lv_obj_get_width(unit_label);
+
+    lv_coord_t unit_x = value_x + (value_w - unit_w) / 2;
+    lv_coord_t unit_y = value_y + value_h + gap_px;
+    lv_obj_set_pos(unit_label, unit_x, unit_y);
+}
+
+static void position_unit_below_value_centered_to_title(lv_obj_t *value_label, lv_obj_t *unit_label,
+                                                         lv_coord_t title_x, lv_coord_t title_w,
+                                                         lv_coord_t gap_px) {
+    if (!value_label || !unit_label) return;
+
+    lv_coord_t value_y = lv_obj_get_y(value_label);
+    lv_coord_t value_h = lv_obj_get_height(value_label);
+    lv_coord_t unit_y = value_y + value_h + gap_px;
+
+    lv_obj_set_width(unit_label, title_w);
+    lv_obj_set_style_text_align(unit_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(unit_label, title_x, unit_y);
+}
+
 static lv_obj_t *make_data_screen_base(AppContext *app, lv_obj_t **slot) {
     lv_obj_t *screen = lv_obj_create(NULL);
     *slot = screen;
@@ -291,6 +374,40 @@ static lv_obj_t *make_data_screen_base(AppContext *app, lv_obj_t **slot) {
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     (void)app;
     return screen;
+}
+
+static void draw_down_triangle_marker_event(lv_event_t *event) {
+    lv_draw_ctx_t *draw_ctx = lv_event_get_draw_ctx(event);
+    lv_obj_t *obj = lv_event_get_target(event);
+    lv_area_t coords;
+    lv_obj_get_coords(obj, &coords);
+
+    lv_coord_t w = lv_area_get_width(&coords);
+    lv_coord_t h = lv_area_get_height(&coords);
+
+    lv_point_t tri[3] = {
+        {(lv_coord_t)(coords.x1 + w / 2), (lv_coord_t)coords.y2},
+        {(lv_coord_t)coords.x1, (lv_coord_t)coords.y1},
+        {(lv_coord_t)coords.x2, (lv_coord_t)coords.y1}
+    };
+
+    lv_draw_rect_dsc_t fill_dsc;
+    lv_draw_rect_dsc_init(&fill_dsc);
+    fill_dsc.bg_color = lv_color_hex(0xFFFFFF);
+    fill_dsc.bg_opa = LV_OPA_COVER;
+    fill_dsc.border_width = 0;
+
+    lv_draw_polygon(draw_ctx, &fill_dsc, tri, 3);
+
+    lv_draw_line_dsc_t line_dsc;
+    lv_draw_line_dsc_init(&line_dsc);
+    line_dsc.color = lv_color_hex(0x202020);
+    line_dsc.width = 2;
+    line_dsc.opa = LV_OPA_COVER;
+
+    lv_draw_line(draw_ctx, &line_dsc, &tri[0], &tri[1]);
+    lv_draw_line(draw_ctx, &line_dsc, &tri[0], &tri[2]);
+    lv_draw_line(draw_ctx, &line_dsc, &tri[1], &tri[2]);
 }
 
 static void tick_data1(lv_timer_t *timer) {
@@ -310,9 +427,9 @@ static void tick_data1(lv_timer_t *timer) {
     lv_label_set_text(app->data.s1_rpm_val_label, buf);
 
     if (demo_mode) {
-        snprintf(buf, sizeof(buf), "%.1f", app->data.demo_tps_pct);
+        snprintf(buf, sizeof(buf), "%.0f", app->data.demo_tps_pct);
     } else if (is_recent(now, app->can.ht.last_0x360_ms, DATA_FAST_TIMEOUT_MS)) {
-        snprintf(buf, sizeof(buf), "%.1f", app->can.ht.tps_pct);
+        snprintf(buf, sizeof(buf), "%.0f", app->can.ht.tps_pct);
     } else {
         snprintf(buf, sizeof(buf), "--.-");
     }
@@ -328,9 +445,9 @@ static void tick_data1(lv_timer_t *timer) {
     lv_label_set_text(app->data.s1_coolant_val_label, buf);
 
     if (demo_mode) {
-        snprintf(buf, sizeof(buf), "%.0f", app->data.demo_speed_kph);
+        snprintf(buf, sizeof(buf), "%.0f", kph_to_mph(app->data.demo_speed_kph));
     } else if (is_recent(now, app->can.ht.last_0x370_ms, DATA_FAST_TIMEOUT_MS)) {
-        snprintf(buf, sizeof(buf), "%.0f", app->can.ht.wheel_speed_kph);
+        snprintf(buf, sizeof(buf), "%.0f", kph_to_mph(app->can.ht.wheel_speed_kph));
     } else {
         snprintf(buf, sizeof(buf), "--");
     }
@@ -438,20 +555,20 @@ static void tick_data3(lv_timer_t *timer) {
     lv_label_set_text(app->data.s3_rpm_val_label, buf);
 
     if (demo_mode) {
-        snprintf(buf, sizeof(buf), "%.0f", app->data.demo_speed_kph);
+        snprintf(buf, sizeof(buf), "%.0f", kph_to_mph(app->data.demo_speed_kph));
     } else if (is_recent(now, app->can.ht.last_0x370_ms, DATA_FAST_TIMEOUT_MS)) {
-        snprintf(buf, sizeof(buf), "%.0f", app->can.ht.wheel_speed_kph);
+        snprintf(buf, sizeof(buf), "%.0f", kph_to_mph(app->can.ht.wheel_speed_kph));
     } else {
         snprintf(buf, sizeof(buf), "--");
     }
     lv_label_set_text(app->data.s3_speed_val_label, buf);
 
     if (demo_mode) {
-        snprintf(buf, sizeof(buf), "%.1f", app->data.demo_tps_pct);
+        snprintf(buf, sizeof(buf), "%.0f", app->data.demo_tps_pct);
     } else if (is_recent(now, app->can.ht.last_0x360_ms, DATA_FAST_TIMEOUT_MS)) {
-        snprintf(buf, sizeof(buf), "%.1f", app->can.ht.tps_pct);
+        snprintf(buf, sizeof(buf), "%.0f", app->can.ht.tps_pct);
     } else {
-        snprintf(buf, sizeof(buf), "--.-");
+        snprintf(buf, sizeof(buf), "--");
     }
     lv_label_set_text(app->data.s3_tps_val_label, buf);
 
@@ -478,15 +595,17 @@ static void tick_data3(lv_timer_t *timer) {
     }
     lv_label_set_text(app->data.s3_gear_val_label, buf);
 
-    position_unit_right_of_value(app->data.s3_rpm_val_label, app->data.s3_rpm_unit_label);
-    position_unit_right_of_value(app->data.s3_speed_val_label, app->data.s3_speed_unit_label);
-    position_unit_right_of_value(app->data.s3_tps_val_label, app->data.s3_tps_unit_label);
+    position_unit_below_value_centered_to_title(app->data.s3_speed_val_label, app->data.s3_speed_unit_label,
+                                                241, 160, BELOW_DV_UNIT_GAP_ENGINE);
+    position_unit_below_value_centered_to_title(app->data.s3_tps_val_label, app->data.s3_tps_unit_label,
+                                                56, 188, BELOW_DV_UNIT_GAP_ENGINE);
 }
 
 static void tick_data4(lv_timer_t *timer) {
     AppContext *app = (AppContext *)timer->user_data;
     uint32_t now = lv_tick_get();
     bool demo_mode = app->data.demo_mode;
+    bool daniel_ike = app->can.can_database == CAN_DB_DANIEL_IKE_GAUGE;
     if (demo_mode) update_data_demo_state(app, now);
     char buf[28];
 
@@ -543,41 +662,120 @@ static void tick_data4(lv_timer_t *timer) {
         app->data.s4_inst_fe_visual += (target - app->data.s4_inst_fe_visual) * alpha;
     }
 
-    float arc_fe = clampf(app->data.s4_inst_fe_visual, 0.0f, FE_ARC_MAX_KM_PER_L);
-    int arc_value = (int)lroundf((arc_fe / FE_ARC_MAX_KM_PER_L) * 1000.0f);
-    lv_arc_set_value(app->data.s4_inst_fe_arc, arc_value);
+    bool ambient_valid = false;
+    float ambient_display_f = 0.0f;
+    bool distance_valid = false;
+    float distance_display_miles = 0.0f;
+    bool inst_economy_valid = false;
+    float inst_economy_display_mpg = 0.0f;
+    bool trip_economy_valid = false;
+    float trip_economy_display_mpg = 0.0f;
 
     if (demo_mode) {
-        snprintf(buf, sizeof(buf), "%.1f", app->data.demo_ambient_c);
-    } else if (is_recent(now, app->can.ht.last_0x376_ms, DATA_SLOW_TIMEOUT_MS)) {
-        snprintf(buf, sizeof(buf), "%.1f", app->can.ht.ambient_temp_c);
+        ambient_valid = true;
+        ambient_display_f = c_to_f(app->data.demo_ambient_c);
+        distance_valid = true;
+        distance_display_miles = km_to_miles(app->data.s4_distance_km);
+        if (inst_fe_valid) {
+            inst_economy_valid = true;
+            inst_economy_display_mpg = km_per_l_to_mpg(inst_fe);
+        }
+        if (app->data.s4_fuel_used_l > 0.05f && app->data.s4_distance_km > 0.01f) {
+            trip_economy_valid = true;
+            trip_economy_display_mpg = km_per_l_to_mpg(app->data.s4_distance_km / app->data.s4_fuel_used_l);
+        }
+    } else if (daniel_ike) {
+        ambient_valid = is_recent(now, app->can.ht.last_0x3E0_ms, DATA_SLOW_TIMEOUT_MS);
+        if (ambient_valid) ambient_display_f = c_to_f(app->can.ht.ambient_temp_c);
+
+        bool economy_valid = is_recent(now, app->can.ht.last_0x3E1_ms, DATA_SLOW_TIMEOUT_MS);
+        if (economy_valid) {
+            distance_valid = true;
+            distance_display_miles = km_to_miles(app->can.ht.trip_distance_km);
+
+            if (app->can.ht.inst_fuel_per_100km > 0.0f) {
+                inst_economy_valid = true;
+                inst_economy_display_mpg = l_per_100km_to_mpg(app->can.ht.inst_fuel_per_100km);
+            }
+
+            if (app->can.ht.trip_fuel_per_100km > 0.0f) {
+                trip_economy_valid = true;
+                trip_economy_display_mpg = l_per_100km_to_mpg(app->can.ht.trip_fuel_per_100km);
+            }
+        }
     } else {
-        snprintf(buf, sizeof(buf), "--.-");
+        ambient_valid = is_recent(now, app->can.ht.last_0x376_ms, DATA_SLOW_TIMEOUT_MS);
+        if (ambient_valid) ambient_display_f = c_to_f(app->can.ht.ambient_temp_c);
+
+        distance_valid = true;
+        distance_display_miles = km_to_miles(app->data.s4_distance_km);
+
+        if (inst_fe_valid) {
+            inst_economy_valid = true;
+            inst_economy_display_mpg = km_per_l_to_mpg(inst_fe);
+        }
+
+        if (app->data.s4_fuel_used_l > 0.05f && app->data.s4_distance_km > 0.01f) {
+            trip_economy_valid = true;
+            trip_economy_display_mpg = km_per_l_to_mpg(app->data.s4_distance_km / app->data.s4_fuel_used_l);
+        }
+    }
+
+    float bar_fe = clampf(inst_economy_display_mpg, 0.0f, FE_ARC_MAX_MPG);
+    int bar_value = (int)lroundf((bar_fe / FE_ARC_MAX_MPG) * 1000.0f);
+    lv_bar_set_value(app->data.s4_inst_fe_arc, bar_value, LV_ANIM_OFF);
+
+    if (app->data.s4_trip_fe_marker) {
+        if (trip_economy_valid) {
+            int marker_x = FE_BAR_X - FE_MARKER_W / 2 +
+                           (int)lroundf((clampf(trip_economy_display_mpg, 0.0f, FE_ARC_MAX_MPG) / FE_ARC_MAX_MPG) * (float)FE_BAR_W);
+            int min_x = FE_BAR_X - FE_MARKER_W / 2;
+            int max_x = FE_BAR_X + FE_BAR_W - FE_MARKER_W / 2;
+            if (marker_x < min_x) marker_x = min_x;
+            if (marker_x > max_x) marker_x = max_x;
+            lv_obj_set_pos(app->data.s4_trip_fe_marker, marker_x, FE_MARKER_TOP_Y);
+            lv_obj_clear_flag(app->data.s4_trip_fe_marker, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(app->data.s4_trip_fe_marker, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    if (ambient_valid) {
+        snprintf(buf, sizeof(buf), "%.0f°", ambient_display_f);
+    } else {
+        snprintf(buf, sizeof(buf), "--°");
     }
     lv_label_set_text(app->data.s4_ambient_val_label, buf);
 
-    snprintf(buf, sizeof(buf), "%.2f", app->data.s4_distance_km);
+    if (distance_valid) {
+        if (distance_display_miles >= 100.0f) {
+            snprintf(buf, sizeof(buf), "%.0f", distance_display_miles);
+        } else {
+            snprintf(buf, sizeof(buf), "%.1f", distance_display_miles);
+        }
+    } else {
+        snprintf(buf, sizeof(buf), "--.-");
+    }
     lv_label_set_text(app->data.s4_distance_val_label, buf);
 
-    if (inst_fe_valid) {
-        snprintf(buf, sizeof(buf), "%.1f", inst_fe);
+    if (inst_economy_valid) {
+        snprintf(buf, sizeof(buf), "%.1f", inst_economy_display_mpg);
     } else {
         snprintf(buf, sizeof(buf), "--.-");
     }
     lv_label_set_text(app->data.s4_inst_fe_val_label, buf);
 
-    if (app->data.s4_fuel_used_l > 0.05f && app->data.s4_distance_km > 0.01f) {
-        float accum_fe = app->data.s4_distance_km / app->data.s4_fuel_used_l;
-        snprintf(buf, sizeof(buf), "%.1f", accum_fe);
+    if (trip_economy_valid) {
+        snprintf(buf, sizeof(buf), "%.1f", trip_economy_display_mpg);
     } else {
         snprintf(buf, sizeof(buf), "--.-");
     }
     lv_label_set_text(app->data.s4_accum_fe_val_label, buf);
 
-    position_unit_right_of_value(app->data.s4_ambient_val_label, app->data.s4_ambient_unit_label);
-    position_unit_right_of_value(app->data.s4_distance_val_label, app->data.s4_distance_unit_label);
-    position_unit_right_of_value(app->data.s4_inst_fe_val_label, app->data.s4_inst_fe_unit_label);
-    position_unit_right_of_value(app->data.s4_accum_fe_val_label, app->data.s4_trip_fe_unit_label);
+    position_unit_below_value_centered_to_title(app->data.s4_distance_val_label, app->data.s4_distance_unit_label,
+                                                246, 170, BELOW_DV_UNIT_GAP_DRIVING);
+    position_unit_below_value_centered_to_title(app->data.s4_accum_fe_val_label, app->data.s4_trip_fe_unit_label,
+                                                AppConfig::CX - 210, 420, BELOW_DV_UNIT_GAP_DRIVING);
 }
 
 lv_obj_t *create_data_screen1(AppContext *app) {
@@ -657,26 +855,46 @@ lv_obj_t *create_data_screen2(AppContext *app) {
 lv_obj_t *create_data_screen3(AppContext *app) {
     lv_obj_t *screen = make_data_screen_base(app, &app->data.screen3);
 
-    const int row_stride = 108;
-    const int name_y0 = 30;
-    const int value_offset = 26;
-    const int unit_w = 90;
-    const int row_value_x_adjust[4] = {-6, -6, 0, 0};
+    const int title_w = 160;
+    const int left_x = 54;
+    const int right_x = 241;
+    const int top_title_y = 92;
+    const int bottom_title_y = 246;
+    const int top_value_y = 120;
+    const int bottom_value_y = 274;
 
-    make_data_name_label_lg(screen, "ENGINE SPEED", name_y0 + 0 * row_stride);
-    app->data.s3_rpm_val_label = make_data_val_label_lg_at(screen, "--", AppConfig::CX - 210 + row_value_x_adjust[0], name_y0 + 0 * row_stride + value_offset, 420);
-    app->data.s3_rpm_unit_label = make_unit_label_at(screen, "RPM", 0, 0, unit_w);
+    lv_obj_t *s3_rpm_title = make_data_name_label_lg_at(screen, "RPM", left_x + 6, top_title_y, title_w);
+    lv_obj_set_style_text_font(s3_rpm_title, &lv_font_montserrat_24, 0);
+    app->data.s3_rpm_val_label = make_data_val_label_lg_at(screen, "--", left_x - 12, top_value_y, title_w + 48);
+    lv_obj_set_style_text_font(app->data.s3_rpm_val_label, &lv_font_montserrat_semibold_84, 0);
+    lv_obj_set_style_text_color(app->data.s3_rpm_val_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_opa(app->data.s3_rpm_val_label, LV_OPA_COVER, 0);
+    lv_label_set_long_mode(app->data.s3_rpm_val_label, LV_LABEL_LONG_CLIP);
+    app->data.s3_rpm_unit_label = make_unit_label_at(screen, "RPM", 0, 0, 70);
+    lv_obj_add_flag(app->data.s3_rpm_unit_label, LV_OBJ_FLAG_HIDDEN);
 
-    make_data_name_label_lg(screen, "VEHICLE SPEED", name_y0 + 1 * row_stride);
-    app->data.s3_speed_val_label = make_data_val_label_lg_at(screen, "--", AppConfig::CX - 210 + row_value_x_adjust[1], name_y0 + 1 * row_stride + value_offset, 420);
-    app->data.s3_speed_unit_label = make_unit_label_at(screen, "km/h", 0, 0, unit_w);
+    lv_obj_t *s3_gear_title = make_data_name_label_lg_at(screen, "GEAR", right_x + 10, top_title_y, title_w);
+    lv_obj_set_style_text_font(s3_gear_title, &lv_font_montserrat_24, 0);
+    app->data.s3_gear_val_label = make_data_val_label_lg_at(screen, "--", right_x + 4, top_value_y, title_w + 16);
+    lv_obj_set_style_text_font(app->data.s3_gear_val_label, &lv_font_montserrat_semibold_84, 0);
+    lv_obj_set_style_text_color(app->data.s3_gear_val_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_opa(app->data.s3_gear_val_label, LV_OPA_COVER, 0);
 
-    make_data_name_label_lg(screen, "TPS", name_y0 + 2 * row_stride);
-    app->data.s3_tps_val_label = make_data_val_label_lg(screen, "--", name_y0 + 2 * row_stride + value_offset);
-    app->data.s3_tps_unit_label = make_unit_label_at(screen, "%", 0, 0, unit_w);
+    lv_obj_t *s3_tps_title = make_data_name_label_lg_at(screen, "THROTTLE", left_x + 2, bottom_title_y, title_w + 28);
+    lv_obj_set_style_text_font(s3_tps_title, &lv_font_montserrat_24, 0);
+    app->data.s3_tps_val_label = make_data_val_label_lg_at(screen, "--", left_x - 8, bottom_value_y, title_w + 30);
+    lv_obj_set_style_text_font(app->data.s3_tps_val_label, &lv_font_montserrat_semibold_84, 0);
+    lv_obj_set_style_text_color(app->data.s3_tps_val_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_opa(app->data.s3_tps_val_label, LV_OPA_COVER, 0);
+    app->data.s3_tps_unit_label = make_unit_label_at(screen, "%", 0, 0, 36);
 
-    make_data_name_label_lg(screen, "GEAR", name_y0 + 3 * row_stride);
-    app->data.s3_gear_val_label = make_data_val_label_lg(screen, "--", name_y0 + 3 * row_stride + value_offset);
+    lv_obj_t *s3_speed_title = make_data_name_label_lg_at(screen, "SPEED", right_x, bottom_title_y, title_w);
+    lv_obj_set_style_text_font(s3_speed_title, &lv_font_montserrat_24, 0);
+    app->data.s3_speed_val_label = make_data_val_label_lg_at(screen, "--", right_x - 12, bottom_value_y, title_w + 36);
+    lv_obj_set_style_text_font(app->data.s3_speed_val_label, &lv_font_montserrat_semibold_84, 0);
+    lv_obj_set_style_text_color(app->data.s3_speed_val_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_opa(app->data.s3_speed_val_label, LV_OPA_COVER, 0);
+    app->data.s3_speed_unit_label = make_unit_label_at(screen, "MPH", 0, 0, 84);
 
     app->data.timer3 = lv_timer_create(tick_data3, 200, app);
     tick_data3(app->data.timer3);
@@ -686,44 +904,104 @@ lv_obj_t *create_data_screen3(AppContext *app) {
 lv_obj_t *create_data_screen4(AppContext *app) {
     lv_obj_t *screen = make_data_screen_base(app, &app->data.screen4);
 
-    lv_obj_t *arc = lv_arc_create(screen);
-    app->data.s4_inst_fe_arc = arc;
-    lv_obj_set_size(arc, 420, 420);
-    lv_obj_center(arc);
-    lv_arc_set_rotation(arc, 0);
-    lv_arc_set_bg_angles(arc, (int)AppConfig::AFR_ARC_START_DEG, (int)AppConfig::AFR_ARC_END_DEG);
-    lv_arc_set_range(arc, 0, 1000);
-    lv_arc_set_value(arc, 0);
-    lv_obj_set_style_arc_width(arc, 22, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(arc, 22, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(0x3b3b3b), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(0x20c870), LV_PART_INDICATOR);
-    lv_obj_set_style_opa(arc, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_opa(arc, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_set_style_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
-    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    const int title_w = 170;
+    const int top_title_y = 90;
+    const int top_val_y = 110;
+    const int bottom_value_y = 335;
+    const int avg_title_y = bottom_value_y - 20;
 
-    const int row_stride = 96;
-    const int name_y0 = 34;
-    const int value_offset = 26;
-    const int unit_w = 90;
-    const int value_x_shift = -7;
+    lv_obj_t *s4_ambient_title = make_data_name_label_lg_at(screen, "AMB. TEMP", 56, top_title_y, title_w);
+    lv_obj_set_style_text_font(s4_ambient_title, &lv_font_montserrat_24, 0);
+    app->data.s4_ambient_val_label = make_data_val_label_lg_at(screen, "--", 54, top_val_y, title_w);
+    lv_obj_set_style_text_font(app->data.s4_ambient_val_label, &lv_font_montserrat_semibold_84, 0);
+    lv_obj_set_style_text_color(app->data.s4_ambient_val_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_opa(app->data.s4_ambient_val_label, LV_OPA_COVER, 0);
+    app->data.s4_ambient_unit_label = make_unit_label_at(screen, "oF", 0, 0, 70);
+    lv_obj_set_style_text_font(app->data.s4_ambient_unit_label, &lv_font_montserrat_18, 0);
+    lv_obj_add_flag(app->data.s4_ambient_unit_label, LV_OBJ_FLAG_HIDDEN);
 
-    make_data_name_label_lg(screen, "AMBIENT TEMP", name_y0 + 0 * row_stride);
-    app->data.s4_ambient_val_label = make_data_val_label_lg_at(screen, "--", AppConfig::CX - 210 + value_x_shift, name_y0 + 0 * row_stride + value_offset, 420);
-    app->data.s4_ambient_unit_label = make_unit_label_at(screen, "C", 0, 0, unit_w);
+    lv_obj_t *s4_trip_title = make_data_name_label_lg_at(screen, "TRIP", 246, top_title_y, title_w);
+    lv_obj_set_style_text_font(s4_trip_title, &lv_font_montserrat_24, 0);
+    app->data.s4_distance_val_label = make_data_val_label_lg_at(screen, "--.-", 244, top_val_y, title_w);
+    lv_obj_set_style_text_font(app->data.s4_distance_val_label, &lv_font_montserrat_semibold_84, 0);
+    lv_obj_set_style_text_color(app->data.s4_distance_val_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_opa(app->data.s4_distance_val_label, LV_OPA_COVER, 0);
+    app->data.s4_distance_unit_label = make_unit_label_at(screen, "MILES", 0, 0, 120);
+    lv_obj_set_style_text_font(app->data.s4_distance_unit_label, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_align(app->data.s4_distance_unit_label, LV_TEXT_ALIGN_CENTER, 0);
 
-    make_data_name_label_lg(screen, "TRIP DISTANCE", name_y0 + 1 * row_stride);
-    app->data.s4_distance_val_label = make_data_val_label_lg_at(screen, "0.00", AppConfig::CX - 210 + value_x_shift, name_y0 + 1 * row_stride + value_offset, 420);
-    app->data.s4_distance_unit_label = make_unit_label_at(screen, "km", 0, 0, unit_w);
+    lv_obj_t *bar_bg = lv_obj_create(screen);
+    lv_obj_remove_style_all(bar_bg);
+    lv_obj_set_size(bar_bg, FE_BAR_W, FE_BAR_H);
+    lv_obj_set_pos(bar_bg, FE_BAR_X, FE_BAR_Y);
+    lv_obj_set_style_bg_color(bar_bg, lv_color_hex(0x1f1f1f), 0);
+    lv_obj_set_style_bg_opa(bar_bg, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(bar_bg, 2, 0);
+    lv_obj_set_style_border_color(bar_bg, lv_color_hex(0x303030), 0);
+    lv_obj_set_style_radius(bar_bg, 0, 0);
 
-    make_data_name_label_lg(screen, "TRIP FUEL ECONOMY", name_y0 + 2 * row_stride);
-    app->data.s4_accum_fe_val_label = make_data_val_label_lg_at(screen, "--", AppConfig::CX - 210 + value_x_shift, name_y0 + 2 * row_stride + value_offset, 420);
-    app->data.s4_trip_fe_unit_label = make_unit_label_at(screen, "km/L", 0, 0, unit_w);
+    lv_obj_t *bar = lv_bar_create(screen);
+    app->data.s4_inst_fe_arc = bar;
+    lv_obj_set_size(bar, FE_BAR_W, FE_BAR_H);
+    lv_obj_set_pos(bar, FE_BAR_X, FE_BAR_Y);
+    lv_bar_set_range(bar, 0, 1000);
+    lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(0x256C8E), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(bar, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(0xEAEA00), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(bar, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(bar, 0, LV_PART_INDICATOR);
+    lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
 
-    make_data_name_label_lg(screen, "INST FUEL ECONOMY", name_y0 + 3 * row_stride);
-    app->data.s4_inst_fe_val_label = make_data_val_label_lg_at(screen, "--", AppConfig::CX - 210 + value_x_shift, name_y0 + 3 * row_stride + value_offset, 420);
-    app->data.s4_inst_fe_unit_label = make_unit_label_at(screen, "km/L", 0, 0, unit_w);
+    for (int tick = 1; tick < 4; tick++) {
+        lv_obj_t *mark = lv_obj_create(screen);
+        lv_obj_remove_style_all(mark);
+        lv_obj_set_size(mark, 2, 8);
+        lv_obj_set_pos(mark, FE_BAR_X + (FE_BAR_W * tick) / 4 - 1, FE_BAR_Y + FE_BAR_H - 2);
+        lv_obj_set_style_bg_color(mark, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_bg_opa(mark, LV_OPA_COVER, 0);
+    }
+
+    lv_obj_t *bar_min = lv_label_create(screen);
+    lv_obj_set_style_text_color(bar_min, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(bar_min, &lv_font_montserrat_18, 0);
+    lv_obj_set_pos(bar_min, FE_BAR_X - 4, FE_BAR_Y + FE_BAR_H + 4);
+    lv_label_set_text(bar_min, "0 MPG");
+
+    lv_obj_t *bar_mid = lv_label_create(screen);
+    lv_obj_set_style_text_color(bar_mid, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(bar_mid, &lv_font_montserrat_18, 0);
+    lv_obj_set_pos(bar_mid, FE_BAR_X + FE_BAR_W / 2 - 10, FE_BAR_Y + FE_BAR_H + 4);
+    lv_label_set_text(bar_mid, "20");
+
+    lv_obj_t *bar_max = lv_label_create(screen);
+    lv_obj_set_style_text_color(bar_max, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(bar_max, &lv_font_montserrat_18, 0);
+    lv_obj_set_pos(bar_max, FE_BAR_X + FE_BAR_W - 16, FE_BAR_Y + FE_BAR_H + 4);
+    lv_label_set_text(bar_max, "40");
+
+    app->data.s4_trip_fe_marker = lv_obj_create(screen);
+    lv_obj_remove_style_all(app->data.s4_trip_fe_marker);
+    lv_obj_set_size(app->data.s4_trip_fe_marker, FE_MARKER_W, FE_MARKER_H);
+    lv_obj_add_event_cb(app->data.s4_trip_fe_marker, draw_down_triangle_marker_event, LV_EVENT_DRAW_MAIN, NULL);
+    lv_obj_add_flag(app->data.s4_trip_fe_marker, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *s4_avg_title = make_data_name_label_lg(screen, "AVG. FUEL ECONOMY", avg_title_y);
+    lv_obj_set_style_text_font(s4_avg_title, &lv_font_montserrat_24, 0);
+    app->data.s4_accum_fe_val_label = make_data_val_label_lg_at(screen, "--.-", AppConfig::CX - 210 - 6, bottom_value_y, 420);
+    lv_obj_set_style_text_font(app->data.s4_accum_fe_val_label, &lv_font_montserrat_semibold_84, 0);
+    lv_obj_set_style_text_color(app->data.s4_accum_fe_val_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_opa(app->data.s4_accum_fe_val_label, LV_OPA_COVER, 0);
+    app->data.s4_trip_fe_unit_label = make_unit_label_at(screen, "mpg", 0, 0, 70);
+    lv_obj_set_style_text_font(app->data.s4_trip_fe_unit_label, &lv_font_montserrat_18, 0);
+
+    app->data.s4_inst_fe_val_label = lv_label_create(screen);
+    lv_obj_add_flag(app->data.s4_inst_fe_val_label, LV_OBJ_FLAG_HIDDEN);
+    app->data.s4_inst_fe_unit_label = lv_label_create(screen);
+    lv_obj_add_flag(app->data.s4_inst_fe_unit_label, LV_OBJ_FLAG_HIDDEN);
 
     app->data.timer4 = lv_timer_create(tick_data4, 100, app);
     tick_data4(app->data.timer4);

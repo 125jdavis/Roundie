@@ -17,6 +17,13 @@ static inline int16_t sbe16(const uint8_t *data) {
     return (int16_t)be16(data);
 }
 
+static inline bool bit_ms_first(const uint8_t *data, uint16_t start_pos) {
+    uint16_t byte_index = start_pos / 8;
+    uint8_t bit_index_in_byte = (uint8_t)(start_pos % 8);
+    uint8_t mask = (uint8_t)(1u << (7u - bit_index_in_byte));
+    return (data[byte_index] & mask) != 0;
+}
+
 static inline float kelvin_to_c(float kelvin) {
     return kelvin - 273.15f;
 }
@@ -182,18 +189,27 @@ static bool daniel_ike_process_frame(AppContext *app, const twai_message_t &msg,
             break;
 
         case 0x3E0:
-            if (msg.data_length_code < 4) return false;
+            if (msg.data_length_code < 6) return false;
             ht.coolant_temp_c = be16(msg.data + 0) * 0.1f;
             ht.air_temp_c = be16(msg.data + 2) * 0.1f;
-            if (msg.data_length_code >= 6) ht.fuel_temp_c = be16(msg.data + 4) * 0.1f;
-            if (msg.data_length_code >= 8) ht.oil_temp_c = be16(msg.data + 6) * 0.1f;
+            ht.ambient_temp_c = be16(msg.data + 4) * 0.1f;
             ht.last_0x3E0_ms = now_ms;
             break;
 
         case 0x3E1:
-            if (msg.data_length_code < 6) return false;
+            if (msg.data_length_code < 8) return false;
+            ht.trip_distance_km = be16(msg.data + 0) * 0.1f;
+            ht.inst_fuel_per_100km = be16(msg.data + 2) * 0.1f;
             ht.fuel_comp_pct = be16(msg.data + 4) * 0.1f;
+            ht.trip_fuel_per_100km = be16(msg.data + 6) * 0.1f;
             ht.last_0x3E1_ms = now_ms;
+            break;
+
+        case 0x3E4:
+            if (msg.data_length_code < 3) return false;
+            // Daniel Ike CAN setup: 0x3E4, start bit 20, width 1 (CAN Aux 1 - Shift Light).
+            ht.shift_light_active = bit_ms_first(msg.data, 20);
+            ht.last_0x3E4_ms = now_ms;
             break;
 
         case 0x3E9:
@@ -295,6 +311,7 @@ void can_init(AppContext *app) {
 void can_poll(AppContext *app, uint32_t now_ms) {
     if (!app->can.twai_ready) {
         app->can.boost_psi = 0.0f;
+        app->can.shift_light_active = false;
         return;
     }
 
@@ -322,6 +339,8 @@ void can_poll(AppContext *app, uint32_t now_ms) {
         (now_ms - app->can.boost_can_last_valid_ms) > AppConfig::BOOST_CAN_TIMEOUT_MS) {
         app->can.boost_psi = 0.0f;
     }
+
+    app->can.shift_light_active = app->can.ht.shift_light_active;
 
     can_try_autoscan(app, now_ms);
 }

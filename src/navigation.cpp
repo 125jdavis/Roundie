@@ -2,6 +2,8 @@
 
 #include <stdlib.h>
 
+#include "altboost_combo_screen.h"
+#include "alternate_boost_screen.h"
 #include "boostafr_screen.h"
 #include "data_screen.h"
 #include "gauge_screen.h"
@@ -51,6 +53,21 @@ static void tick_boot_splash(lv_timer_t *timer) {
 
     app->nav.current_demo = DEMO_SCREEN_COUNT;
     navigation_set_demo_screen(app, (DemoScreen)app->nav.splash_target_screen, LV_SCR_LOAD_ANIM_NONE);
+}
+
+void navigation_apply_shift_light_bg(AppContext *app) {
+    if (app->nav.current_demo >= DEMO_SCREEN_COUNT) return;
+
+    ScreenSlot &slot = app->nav.slots[app->nav.current_demo];
+    if (!slot.screen) return;
+
+    lv_color_t bg = lv_color_hex(0x000000);
+    if (app->can.shift_light_active) {
+        bg = (app->nav.current_demo == DEMO_GAUGE)
+                 ? lv_color_hex(0xFF9500)
+                 : lv_color_hex(0xFF4500);
+    }
+    lv_obj_set_style_bg_color(slot.screen, bg, 0);
 }
 
 void navigation_register_screen(AppContext *app, DemoScreen demo, lv_obj_t *screen, lv_timer_t **timers, uint8_t timer_count) {
@@ -194,6 +211,10 @@ void navigation_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *dat
                         if (app->nav.tap_streak_count == 2) {
                             if (app->nav.current_demo == DEMO_BOOSTAFR) {
                                 boostafr_toggle_demo(app, release_ms);
+                            } else if (app->nav.current_demo == DEMO_ALTBOOST) {
+                                altboost_toggle_demo(app, release_ms);
+                            } else if (app->nav.current_demo == DEMO_ALTBOOST_COMBO) {
+                                altboost_combo_toggle_demo(app, release_ms);
                             } else if (app->nav.current_demo >= DEMO_DATA1 && app->nav.current_demo <= DEMO_DATA4) {
                                 data_toggle_demo(app, release_ms);
                             } else {

@@ -279,3 +279,10 @@ When custom LVGL fonts compile but text is invisible, use this sequence:
 5. Do controlled A/B tests on-screen.
     - Put fallback (`lv_font_montserrat_48`) and custom font side-by-side on the same screen.
     - This separates font decode problems from z-order/position/style issues quickly.
+
+6. For large Montserrat sizes (64/72/84/96), use generated font files from `src/fonts/`.
+        - Do not assume built-in LVGL Montserrat covers these sizes reliably for this project.
+        - Prefer explicit declarations in `src/app_shared.h` and usage from generated symbols, e.g.:
+            - `lv_font_montserrat_medium_72`
+            - `lv_font_montserrat_semibold_84`
+        - If large text disappears, first switch to a known-good generated font from `src/fonts/` before changing layout.

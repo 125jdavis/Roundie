@@ -22,9 +22,8 @@ void setup() {
 }
 
 void loop() {
-    if (app.nav.current_demo != DEMO_GAUGE && app.nav.current_demo != DEMO_SCREEN_COUNT) {
-        can_poll(&app, lv_tick_get());
-    }
+    can_poll(&app, lv_tick_get());
+    navigation_apply_shift_light_bg(&app);
 
     platform_process_ui();
     navigation_handle_pending(&app);

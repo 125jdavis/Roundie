@@ -8,3 +8,4 @@ void navigation_handle_pending(AppContext *app);
 void navigation_begin_boot_splash(AppContext *app);
 void navigation_sync_splash_countdown(AppContext *app);
 void navigation_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data);
+void navigation_apply_shift_light_bg(AppContext *app);

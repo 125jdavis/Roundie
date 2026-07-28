@@ -1,5 +1,7 @@
 #include "app_ui.h"
 
+#include "altboost_combo_screen.h"
+#include "alternate_boost_screen.h"
 #include "boostafr_screen.h"
 #include "candbg_screen.h"
 #include "data_screen.h"
@@ -12,6 +14,8 @@
 void app_create_ui(AppContext *app) {
     create_gauge_screen(app);
     create_boostafr_screen(app);
+    create_alternate_boost_screen(app);
+    create_altboost_combo_screen(app);
     create_data_screen1(app);
     create_data_screen2(app);
     create_data_screen3(app);
@@ -26,6 +30,12 @@ void app_create_ui(AppContext *app) {
 
     lv_timer_t *boostafr_timers[] = {app->boostafr.arc_timer, app->boostafr.label_timer};
     navigation_register_screen(app, DEMO_BOOSTAFR, app->boostafr.screen, boostafr_timers, 2);
+
+    lv_timer_t *altboost_timers[] = {app->alt_boost.timer};
+    navigation_register_screen(app, DEMO_ALTBOOST, app->alt_boost.screen, altboost_timers, 1);
+
+    lv_timer_t *altboost_combo_timers[] = {app->alt_boost_combo.timer};
+    navigation_register_screen(app, DEMO_ALTBOOST_COMBO, app->alt_boost_combo.screen, altboost_combo_timers, 1);
 
     lv_timer_t *data1_timers[] = {app->data.timer1};
     navigation_register_screen(app, DEMO_DATA1, app->data.screen1, data1_timers, 1);
