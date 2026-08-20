@@ -52,6 +52,8 @@ static constexpr uint32_t DOUBLE_TAP_GAP_MS = 350;
 static constexpr uint32_t TAP_MAX_DURATION_MS = 280;
 static constexpr int TAP_MAX_MOVE_PX = 18;
 static constexpr int DOUBLE_TAP_MAX_DIST_PX = 36;
+static constexpr uint32_t DEMO_HOLD_DURATION_MS = 3000;
+static constexpr int HOLD_MAX_MOVE_PX = 20;
 static constexpr uint32_t GFORCE_TICK_MS = 33;
 static constexpr uint32_t GFORCE_CAN_TIMEOUT_MS = 1200;
 static constexpr float GFORCE_MS2_PER_G = 9.80665f;
@@ -113,13 +115,29 @@ enum CanBitrateProfile : uint8_t {
 enum CanDatabase : uint8_t {
     CAN_DB_HALTECH_PROTOCOL = 0,
     CAN_DB_DANIEL_IKE_GAUGE,
-    CAN_DB_MEGASQUIRT_PLACEHOLDER,
-    CAN_DB_OBD2_PLACEHOLDER,
     CAN_DB_COUNT
 };
 
 namespace AppConfig {
 static constexpr CanDatabase DEFAULT_CAN_DATABASE = CAN_DB_HALTECH_PROTOCOL;
+}
+
+namespace CanFrameId {
+static constexpr uint32_t LAMBDA_EXT_DANIEL_IKE = 0x180;
+static constexpr uint32_t ENGINE_PRIMARY = 0x360;
+static constexpr uint32_t PRESSURES = 0x361;
+static constexpr uint32_t FUEL_FLOW = 0x371;
+static constexpr uint32_t VOLTS_TARGET_BARO = 0x372;
+static constexpr uint32_t AMBIENT_TEMP = 0x376;
+static constexpr uint32_t LAMBDAS = 0x368;
+static constexpr uint32_t WHEEL_SPEED = 0x370;
+static constexpr uint32_t GEAR = 0x470;
+static constexpr uint32_t TEMPS = 0x3E0;
+static constexpr uint32_t ECONOMY_TRIP = 0x3E1;
+static constexpr uint32_t SHIFT_LIGHT = 0x3E4;
+static constexpr uint32_t TARGET_LAMBDA = 0x3E9;
+static constexpr uint32_t LATERAL_G = 0x36B;
+static constexpr uint32_t LONGITUDINAL_G = 0x36E;
 }
 
 struct HaltechData {
@@ -198,6 +216,7 @@ struct WatchScreenState {
 
 struct GaugeScreenState {
     lv_obj_t *screen = nullptr;
+    lv_obj_t *bg_canvas = nullptr;
     lv_color_t *gauge_bg_buf = nullptr;
     lv_obj_t *psi_value_label = nullptr;
     lv_obj_t *psi_unit_label = nullptr;
@@ -225,6 +244,7 @@ struct GaugeScreenState {
 
 struct AlternateBoostScreenState {
     lv_obj_t *screen = nullptr;
+    lv_obj_t *bg_canvas = nullptr;
     lv_color_t *gauge_bg_buf = nullptr;
     lv_obj_t *needle_obj = nullptr;
     lv_obj_t *needle_pivot = nullptr;
@@ -425,14 +445,67 @@ struct GForceScreenState {
     bool source_internal = false;
 };
 
+struct AppContext;
+using ScreenDoubleTapHandler = void (*)(AppContext *app, uint32_t now_ms);
+using ScreenLongPressHandler = void (*)(AppContext *app, uint32_t now_ms);
+
+enum ColorParameter : uint8_t {
+    COLOR_PRIMARY_TEXT = 0,
+    COLOR_SECONDARY_TEXT,
+    COLOR_GAUGE_NEEDLE,
+    COLOR_GAUGE_TICK,
+    COLOR_BAR_GAUGE_1,
+    COLOR_BAR_GAUGE_2,
+    COLOR_SHIFT_LIGHT,
+    COLOR_PARAMETER_COUNT
+};
+
+struct ThemeState {
+    uint32_t colors[COLOR_PARAMETER_COUNT] = {
+        0xFFFFFF,
+        0x7AB8F5,
+        0xEAEA00,
+        0xFFFFFF,
+        0xEAEA00,
+        0x256C8E,
+        0xFF4500,
+    };
+};
+
+struct ColorConfigState {
+    lv_obj_t *list_screen = nullptr;
+    lv_obj_t *picker_screen = nullptr;
+    lv_obj_t *list_container = nullptr;
+    lv_obj_t *picker_colorwheel = nullptr;
+    lv_obj_t *picker_value_slider = nullptr;
+    lv_obj_t *picker_preview = nullptr;
+    lv_obj_t *picker_canvas = nullptr;
+    lv_obj_t *picker_dot = nullptr;
+    lv_obj_t *picker_title = nullptr;
+    lv_color_t *picker_buf = nullptr;
+    lv_timer_t *picker_render_timer = nullptr;
+    uint16_t picker_render_next_row = 0;
+    bool picker_ring_ready = false;
+    bool visible = false;
+    bool picker_visible = false;
+    ColorParameter active_parameter = COLOR_PRIMARY_TEXT;
+    uint32_t working_color = 0xFFFFFF;
+    ThemeState last_applied_theme = {};
+    bool has_last_applied_theme = false;
+};
+
 struct ScreenSlot {
     lv_obj_t *screen = nullptr;
     lv_timer_t *timers[3] = {};
     uint8_t timer_count = 0;
+    ScreenDoubleTapHandler on_double_tap = nullptr;
+    ScreenLongPressHandler on_long_press = nullptr;
 };
 
 struct NavigationState {
     ScreenSlot slots[DEMO_SCREEN_COUNT] = {};
+    DemoScreen active_order[DEMO_SCREEN_COUNT] = {};
+    uint8_t active_count = 0;
     lv_obj_t *splash_screen = nullptr;
     lv_timer_t *splash_timer = nullptr;
     uint8_t splash_target_screen = 0;
@@ -470,7 +543,9 @@ struct CanState {
 
 struct AppContext {
     PlatformState platform;
+    ThemeState theme;
     NavigationState nav;
+    ColorConfigState color_cfg;
     CanState can;
     WatchScreenState watch;
     GaugeScreenState gauge;
@@ -500,6 +575,38 @@ inline float arc_angle_for_t(float start_deg, float end_deg, float t) {
     while (angle >= 360.0f) angle -= 360.0f;
     while (angle < 0.0f) angle += 360.0f;
     return angle;
+}
+
+inline lv_color_t app_theme_color(const AppContext *app, ColorParameter param) {
+    return lv_color_hex(app->theme.colors[param]);
+}
+
+inline lv_color_t app_primary_text_color(const AppContext *app) {
+    return app_theme_color(app, COLOR_PRIMARY_TEXT);
+}
+
+inline lv_color_t app_secondary_text_color(const AppContext *app) {
+    return app_theme_color(app, COLOR_SECONDARY_TEXT);
+}
+
+inline lv_color_t app_gauge_needle_color(const AppContext *app) {
+    return app_theme_color(app, COLOR_GAUGE_NEEDLE);
+}
+
+inline lv_color_t app_gauge_tick_color(const AppContext *app) {
+    return app_theme_color(app, COLOR_GAUGE_TICK);
+}
+
+inline lv_color_t app_bar_gauge_color1(const AppContext *app) {
+    return app_theme_color(app, COLOR_BAR_GAUGE_1);
+}
+
+inline lv_color_t app_bar_gauge_color2(const AppContext *app) {
+    return app_theme_color(app, COLOR_BAR_GAUGE_2);
+}
+
+inline lv_color_t app_shift_light_color(const AppContext *app) {
+    return app_theme_color(app, COLOR_SHIFT_LIGHT);
 }
 
 LV_FONT_DECLARE(lv_font_montserrat_64);

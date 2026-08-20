@@ -1,4 +1,5 @@
 #include "altboost_combo_screen.h"
+#include "can_bus.h"
 
 #include <math.h>
 #include <string.h>
@@ -44,10 +45,6 @@ static float boost_to_angle_deg(float psi) {
 
 static float lambda_to_angle_deg(float lambda) {
     return arc_angle_for_t(ALT_BOTTOM_ARC_START_DEG, ALT_BOTTOM_ARC_END_DEG, lambda_to_t(lambda));
-}
-
-static bool is_recent(uint32_t now, uint32_t ts, uint32_t timeout_ms) {
-    return ts > 0 && (now - ts) < timeout_ms;
 }
 
 static float triangle_wave_01(float phase) {
@@ -116,7 +113,7 @@ static void draw_triangle_event(lv_event_t *event) {
 
     lv_draw_rect_dsc_t fill_dsc;
     lv_draw_rect_dsc_init(&fill_dsc);
-    fill_dsc.bg_color = lv_color_hex(0xFFFFFF);
+    fill_dsc.bg_color = app_primary_text_color(app);
     fill_dsc.bg_opa = LV_OPA_COVER;
     fill_dsc.border_width = 0;
     lv_draw_polygon(draw_ctx, &fill_dsc, tri, 3);
@@ -146,7 +143,7 @@ static void draw_ghost_line_event(lv_event_t *event) {
 
     lv_draw_line_dsc_t dsc;
     lv_draw_line_dsc_init(&dsc);
-    dsc.color = lv_color_hex(0xFFFFFF);
+    dsc.color = app_primary_text_color(app);
     dsc.width = 4;
     dsc.opa = LV_OPA_COVER;
 
@@ -222,11 +219,11 @@ static void update_ghost_state(AppContext *app, float boost_psi_actual, uint32_t
     }
 }
 
-static void set_arc_visual_style(lv_obj_t *arc) {
+static void set_arc_visual_style(AppContext *app, lv_obj_t *arc) {
     lv_obj_set_style_arc_width(arc, 34, LV_PART_MAIN);
     lv_obj_set_style_arc_width(arc, 34, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(0x256C8E), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(0xEAEA00), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, app_bar_gauge_color2(app), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, app_bar_gauge_color1(app), LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(arc, false, LV_PART_MAIN);
     lv_obj_set_style_arc_rounded(arc, false, LV_PART_INDICATOR);
     lv_obj_set_style_opa(arc, LV_OPA_COVER, LV_PART_MAIN);
@@ -250,17 +247,17 @@ static void tick_altboost_combo(lv_timer_t *timer) {
     } else {
         boost_psi_actual = clamp_boost(app->can.boost_psi);
 
-        if (is_recent(now, app->can.ht.last_0x368_ms, ALT_FAST_TIMEOUT_MS)) {
+        if (can_is_recent(now, app->can.ht.last_0x368_ms, ALT_FAST_TIMEOUT_MS)) {
             lambda_actual = app->can.ht.lambda1;
         }
 
-        if (is_recent(now, app->can.ht.last_0x372_ms, ALT_TARGET_TIMEOUT_MS)) {
+        if (can_is_recent(now, app->can.ht.last_0x372_ms, ALT_TARGET_TIMEOUT_MS)) {
             target_boost_psi = clamp_boost(app->can.ht.target_boost_kpa * AppConfig::KPA_TO_PSI);
         } else {
             target_boost_psi = boost_psi_actual;
         }
 
-        if (is_recent(now, app->can.ht.last_0x3E9_ms, ALT_TARGET_TIMEOUT_MS) && app->can.ht.target_lambda > 0.0f) {
+        if (can_is_recent(now, app->can.ht.last_0x3E9_ms, ALT_TARGET_TIMEOUT_MS) && app->can.ht.target_lambda > 0.0f) {
             target_lambda = clamp_lambda(app->can.ht.target_lambda);
         } else {
             target_lambda = lambda_actual;
@@ -356,7 +353,7 @@ lv_obj_t *create_altboost_combo_screen(AppContext *app) {
     lv_arc_set_bg_angles(app->alt_boost_combo.boost_arc, (int)ALT_TOP_ARC_START_DEG, (int)ALT_TOP_ARC_END_DEG);
     lv_arc_set_range(app->alt_boost_combo.boost_arc, 0, ALT_ARC_RANGE_MAX);
     lv_arc_set_value(app->alt_boost_combo.boost_arc, 0);
-    set_arc_visual_style(app->alt_boost_combo.boost_arc);
+    set_arc_visual_style(app, app->alt_boost_combo.boost_arc);
 
     app->alt_boost_combo.lambda_arc = lv_arc_create(screen);
     lv_obj_set_size(app->alt_boost_combo.lambda_arc, 420, 420);
@@ -365,10 +362,10 @@ lv_obj_t *create_altboost_combo_screen(AppContext *app) {
     lv_arc_set_bg_angles(app->alt_boost_combo.lambda_arc, (int)ALT_BOTTOM_ARC_START_DEG, (int)ALT_BOTTOM_ARC_END_DEG);
     lv_arc_set_range(app->alt_boost_combo.lambda_arc, 0, ALT_ARC_RANGE_MAX);
     lv_arc_set_value(app->alt_boost_combo.lambda_arc, 500);
-    set_arc_visual_style(app->alt_boost_combo.lambda_arc);
+    set_arc_visual_style(app, app->alt_boost_combo.lambda_arc);
 
     app->alt_boost_combo.boost_value_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(app->alt_boost_combo.boost_value_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(app->alt_boost_combo.boost_value_label, app_primary_text_color(app), 0);
     lv_obj_set_style_text_font(app->alt_boost_combo.boost_value_label, &lv_font_montserrat_semibold_72, 0);
     lv_obj_set_width(app->alt_boost_combo.boost_value_label, 260);
     lv_obj_set_style_text_align(app->alt_boost_combo.boost_value_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -381,7 +378,7 @@ lv_obj_t *create_altboost_combo_screen(AppContext *app) {
     lv_label_set_text(app->alt_boost_combo.boost_unit_label, "PSI");
 
     app->alt_boost_combo.boost_title_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(app->alt_boost_combo.boost_title_label, lv_color_hex(0x7ab8f5), 0);
+    lv_obj_set_style_text_color(app->alt_boost_combo.boost_title_label, app_secondary_text_color(app), 0);
     lv_obj_set_style_text_font(app->alt_boost_combo.boost_title_label, &lv_font_montserrat_32, 0);
     lv_obj_set_width(app->alt_boost_combo.boost_title_label, 320);
     lv_obj_set_style_text_align(app->alt_boost_combo.boost_title_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -389,7 +386,7 @@ lv_obj_t *create_altboost_combo_screen(AppContext *app) {
     lv_label_set_text(app->alt_boost_combo.boost_title_label, "BOOST");
 
     app->alt_boost_combo.lambda_value_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(app->alt_boost_combo.lambda_value_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(app->alt_boost_combo.lambda_value_label, app_primary_text_color(app), 0);
     lv_obj_set_style_text_font(app->alt_boost_combo.lambda_value_label, &lv_font_montserrat_semibold_72, 0);
     lv_obj_set_width(app->alt_boost_combo.lambda_value_label, 320);
     lv_obj_set_style_text_align(app->alt_boost_combo.lambda_value_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -397,7 +394,7 @@ lv_obj_t *create_altboost_combo_screen(AppContext *app) {
     lv_label_set_text(app->alt_boost_combo.lambda_value_label, "1.000");
 
     app->alt_boost_combo.lambda_title_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(app->alt_boost_combo.lambda_title_label, lv_color_hex(0x7ab8f5), 0);
+    lv_obj_set_style_text_color(app->alt_boost_combo.lambda_title_label, app_secondary_text_color(app), 0);
     lv_obj_set_style_text_font(app->alt_boost_combo.lambda_title_label, &lv_font_montserrat_32, 0);
     lv_obj_set_width(app->alt_boost_combo.lambda_title_label, 320);
     lv_obj_set_style_text_align(app->alt_boost_combo.lambda_title_label, LV_TEXT_ALIGN_CENTER, 0);

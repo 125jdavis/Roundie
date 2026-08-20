@@ -1,4 +1,5 @@
 #include "gforce_screen.h"
+#include "can_bus.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -151,9 +152,8 @@ static float normalize_g_from_ms2(float value_ms2) {
 
 static bool gforce_is_fresh(const AppContext *app, uint32_t now_ms) {
     const HaltechData &ht = app->can.ht;
-    return ht.last_0x36B_ms > 0 && ht.last_0x36E_ms > 0 &&
-           (now_ms - ht.last_0x36B_ms) < AppConfig::GFORCE_CAN_TIMEOUT_MS &&
-           (now_ms - ht.last_0x36E_ms) < AppConfig::GFORCE_CAN_TIMEOUT_MS;
+    return can_is_recent(now_ms, ht.last_0x36B_ms, AppConfig::GFORCE_CAN_TIMEOUT_MS) &&
+           can_is_recent(now_ms, ht.last_0x36E_ms, AppConfig::GFORCE_CAN_TIMEOUT_MS);
 }
 
 static int wrap_bin(int bin) {

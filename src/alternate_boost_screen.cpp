@@ -189,7 +189,7 @@ void draw_needle_event(lv_event_t *event) {
 
     lv_draw_rect_dsc_t needle_dsc;
     lv_draw_rect_dsc_init(&needle_dsc);
-    needle_dsc.bg_color = lv_color_hex(0xEAEA00);
+    needle_dsc.bg_color = app_gauge_needle_color(app);
     needle_dsc.bg_opa = LV_OPA_COVER;
     needle_dsc.border_width = 0;
 
@@ -198,6 +198,7 @@ void draw_needle_event(lv_event_t *event) {
 }
 
 void draw_marker_event(lv_event_t *event) {
+    AppContext *app = (AppContext *)lv_event_get_user_data(event);
     lv_draw_ctx_t *draw_ctx = lv_event_get_draw_ctx(event);
     lv_obj_t *obj = lv_event_get_target(event);
     lv_area_t coords;
@@ -214,7 +215,7 @@ void draw_marker_event(lv_event_t *event) {
 
     lv_draw_rect_dsc_t dsc;
     lv_draw_rect_dsc_init(&dsc);
-    dsc.bg_color = lv_color_hex(0xFFFFFF);
+    dsc.bg_color = app ? app_primary_text_color(app) : lv_color_hex(0xFFFFFF);
     dsc.bg_opa = LV_OPA_COVER;
     dsc.border_width = 0;
 
@@ -337,20 +338,10 @@ void altboost_toggle_demo(AppContext *app, uint32_t now_ms) {
     }
 }
 
-lv_obj_t *create_alternate_boost_screen(AppContext *app) {
-    lv_obj_t *screen = lv_obj_create(NULL);
-    app->alt_boost.screen = screen;
+static void redraw_altboost_background(AppContext *app) {
+    if (!app->alt_boost.bg_canvas) return;
 
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-
-    app->alt_boost.gauge_bg_buf = (lv_color_t *)heap_caps_malloc(
-        AppConfig::LCD_WIDTH * AppConfig::LCD_HEIGHT * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
-    lv_obj_t *bg_canvas = lv_canvas_create(screen);
-    lv_canvas_set_buffer(bg_canvas, app->alt_boost.gauge_bg_buf,
-                         AppConfig::LCD_WIDTH, AppConfig::LCD_HEIGHT, LV_IMG_CF_TRUE_COLOR);
-    lv_obj_set_pos(bg_canvas, 0, 0);
-    lv_canvas_fill_bg(bg_canvas, lv_color_hex(0x000000), LV_OPA_COVER);
+    lv_canvas_fill_bg(app->alt_boost.bg_canvas, lv_color_hex(0x000000), LV_OPA_COVER);
 
     for (int step = (int)ALT_MIN_STEP; step <= (int)ALT_MAX_STEP; step++) {
         float angle = alt_step_to_angle_deg((float)step) * (float)M_PI / 180.0f;
@@ -367,16 +358,42 @@ lv_obj_t *create_alternate_boost_screen(AppContext *app) {
 
         lv_draw_line_dsc_t dsc;
         lv_draw_line_dsc_init(&dsc);
-        dsc.color = lv_color_hex(0xFFFFFF);
+        dsc.color = app_gauge_tick_color(app);
         dsc.width = tick_w;
         dsc.opa = LV_OPA_COVER;
         lv_point_t pts[] = {{(lv_coord_t)x1, (lv_coord_t)y1}, {(lv_coord_t)x2, (lv_coord_t)y2}};
-        lv_canvas_draw_line(bg_canvas, pts, 2, &dsc);
+        lv_canvas_draw_line(app->alt_boost.bg_canvas, pts, 2, &dsc);
+    }
+}
+
+void altboost_refresh_theme(AppContext *app) {
+    redraw_altboost_background(app);
+}
+
+lv_obj_t *create_alternate_boost_screen(AppContext *app) {
+    lv_obj_t *screen = lv_obj_create(NULL);
+    app->alt_boost.screen = screen;
+
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+
+    app->alt_boost.gauge_bg_buf = (lv_color_t *)heap_caps_malloc(
+        AppConfig::LCD_WIDTH * AppConfig::LCD_HEIGHT * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+    lv_obj_t *bg_canvas = lv_canvas_create(screen);
+    app->alt_boost.bg_canvas = bg_canvas;
+    lv_canvas_set_buffer(bg_canvas, app->alt_boost.gauge_bg_buf,
+                         AppConfig::LCD_WIDTH, AppConfig::LCD_HEIGHT, LV_IMG_CF_TRUE_COLOR);
+    lv_obj_set_pos(bg_canvas, 0, 0);
+    redraw_altboost_background(app);
+
+    for (int step = (int)ALT_MIN_STEP; step <= (int)ALT_MAX_STEP; step++) {
+        float angle = alt_step_to_angle_deg((float)step) * (float)M_PI / 180.0f;
+        bool major = (step % 5) == 0;
 
         if (!major) continue;
 
         lv_obj_t *num = lv_label_create(screen);
-        lv_obj_set_style_text_color(num, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_color(num, app_primary_text_color(app), 0);
         lv_obj_set_style_text_font(num, &lv_font_montserrat_32, 0);
 
         char nbuf[8];
@@ -396,19 +413,19 @@ lv_obj_t *create_alternate_boost_screen(AppContext *app) {
     }
 
     lv_obj_t *inhg_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(inhg_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(inhg_label, app_primary_text_color(app), 0);
     lv_obj_set_style_text_font(inhg_label, &lv_font_montserrat_24, 0);
     lv_label_set_text(inhg_label, "In.Hg");
     lv_obj_set_pos(inhg_label, 88, 300);
 
     lv_obj_t *psi_half_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(psi_half_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(psi_half_label, app_primary_text_color(app), 0);
     lv_obj_set_style_text_font(psi_half_label, &lv_font_montserrat_24, 0);
     lv_label_set_text(psi_half_label, "PSI");
     lv_obj_set_pos(psi_half_label, 322, 300);
 
     app->alt_boost.value_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(app->alt_boost.value_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(app->alt_boost.value_label, app_primary_text_color(app), 0);
     lv_obj_set_style_text_font(app->alt_boost.value_label, &lv_font_montserrat_semibold_72, 0);
     lv_obj_set_width(app->alt_boost.value_label, 320);
     lv_obj_set_style_text_align(app->alt_boost.value_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -418,7 +435,7 @@ lv_obj_t *create_alternate_boost_screen(AppContext *app) {
     app->alt_boost.unit_label = nullptr;
 
     app->alt_boost.boost_title_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(app->alt_boost.boost_title_label, lv_color_hex(0x7ab8f5), 0);
+    lv_obj_set_style_text_color(app->alt_boost.boost_title_label, app_secondary_text_color(app), 0);
     lv_obj_set_style_text_font(app->alt_boost.boost_title_label, &lv_font_montserrat_semibold_40, 0);
     lv_obj_set_width(app->alt_boost.boost_title_label, 320);
     lv_obj_set_style_text_align(app->alt_boost.boost_title_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -441,14 +458,14 @@ lv_obj_t *create_alternate_boost_screen(AppContext *app) {
     lv_obj_set_size(app->alt_boost.max_marker, ALT_MARKER_SIZE, ALT_MARKER_SIZE);
     lv_obj_set_style_transform_pivot_x(app->alt_boost.max_marker, ALT_MARKER_SIZE / 2, 0);
     lv_obj_set_style_transform_pivot_y(app->alt_boost.max_marker, ALT_MARKER_SIZE / 2, 0);
-    lv_obj_add_event_cb(app->alt_boost.max_marker, draw_marker_event, LV_EVENT_DRAW_MAIN, nullptr);
+    lv_obj_add_event_cb(app->alt_boost.max_marker, draw_marker_event, LV_EVENT_DRAW_MAIN, app);
     lv_obj_add_flag(app->alt_boost.max_marker, LV_OBJ_FLAG_HIDDEN);
 
     app->alt_boost.needle_pivot = lv_obj_create(screen);
     lv_obj_set_size(app->alt_boost.needle_pivot, 40, 40);
     lv_obj_set_pos(app->alt_boost.needle_pivot, AppConfig::CX - 20, AppConfig::CY - 20);
     lv_obj_set_style_radius(app->alt_boost.needle_pivot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(app->alt_boost.needle_pivot, lv_color_hex(0xEAEA00), 0);
+    lv_obj_set_style_bg_color(app->alt_boost.needle_pivot, app_gauge_needle_color(app), 0);
     lv_obj_set_style_border_width(app->alt_boost.needle_pivot, 0, 0);
     lv_obj_set_style_pad_all(app->alt_boost.needle_pivot, 0, 0);
 

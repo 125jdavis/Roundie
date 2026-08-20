@@ -199,7 +199,7 @@ static void draw_needle_event(lv_event_t *event) {
 
     lv_draw_rect_dsc_t needle_dsc;
     lv_draw_rect_dsc_init(&needle_dsc);
-    needle_dsc.bg_color = lv_color_hex(0xFF1020);
+    needle_dsc.bg_color = app_gauge_needle_color(app);
     needle_dsc.bg_opa = LV_OPA_COVER;
     needle_dsc.border_width = 0;
 
@@ -267,6 +267,38 @@ static void tick_gauge(lv_timer_t *timer) {
     }
 }
 
+static void redraw_gauge_background(AppContext *app) {
+    if (!app->gauge.bg_canvas) return;
+
+    lv_canvas_fill_bg(app->gauge.bg_canvas, lv_color_hex(0x000000), LV_OPA_COVER);
+
+    for (int psi = (int)AppConfig::BOOST_MIN; psi <= (int)AppConfig::BOOST_MAX; psi++) {
+        float angle = psi_to_angle_rad((float)psi);
+        bool major = (psi % 5 == 0);
+
+        int outer_r = 218;
+        int inner_r = major ? 182 : 196;
+        int tick_w = major ? 5 : 2;
+
+        int x1 = AppConfig::CX + (int)(cos(angle) * inner_r);
+        int y1 = AppConfig::CY + (int)(sin(angle) * inner_r);
+        int x2 = AppConfig::CX + (int)(cos(angle) * outer_r);
+        int y2 = AppConfig::CY + (int)(sin(angle) * outer_r);
+
+        lv_draw_line_dsc_t dsc;
+        lv_draw_line_dsc_init(&dsc);
+        dsc.color = app_gauge_tick_color(app);
+        dsc.width = tick_w;
+        dsc.opa = LV_OPA_COVER;
+        lv_point_t pts[] = {{(lv_coord_t)x1, (lv_coord_t)y1}, {(lv_coord_t)x2, (lv_coord_t)y2}};
+        lv_canvas_draw_line(app->gauge.bg_canvas, pts, 2, &dsc);
+    }
+}
+
+void gauge_refresh_theme(AppContext *app) {
+    redraw_gauge_background(app);
+}
+
 lv_obj_t *create_gauge_screen(AppContext *app) {
     lv_obj_t *screen = lv_obj_create(NULL);
     app->gauge.screen = screen;
@@ -285,35 +317,19 @@ lv_obj_t *create_gauge_screen(AppContext *app) {
     app->gauge.gauge_bg_buf = (lv_color_t *)heap_caps_malloc(
         AppConfig::LCD_WIDTH * AppConfig::LCD_HEIGHT * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
     lv_obj_t *bg_canvas = lv_canvas_create(screen);
+    app->gauge.bg_canvas = bg_canvas;
     lv_canvas_set_buffer(bg_canvas, app->gauge.gauge_bg_buf,
                          AppConfig::LCD_WIDTH, AppConfig::LCD_HEIGHT, LV_IMG_CF_TRUE_COLOR);
     lv_obj_set_pos(bg_canvas, 0, 0);
-    lv_canvas_fill_bg(bg_canvas, lv_color_hex(0x000000), LV_OPA_COVER);
+    redraw_gauge_background(app);
 
     for (int psi = (int)AppConfig::BOOST_MIN; psi <= (int)AppConfig::BOOST_MAX; psi++) {
         float angle = psi_to_angle_rad((float)psi);
         bool major = (psi % 5 == 0);
 
-        int outer_r = 218;
-        int inner_r = major ? 182 : 196;
-        int tick_w = major ? 5 : 2;
-
-        int x1 = AppConfig::CX + (int)(cos(angle) * inner_r);
-        int y1 = AppConfig::CY + (int)(sin(angle) * inner_r);
-        int x2 = AppConfig::CX + (int)(cos(angle) * outer_r);
-        int y2 = AppConfig::CY + (int)(sin(angle) * outer_r);
-
-        lv_draw_line_dsc_t dsc;
-        lv_draw_line_dsc_init(&dsc);
-        dsc.color = lv_color_hex(0xFFFFFF);
-        dsc.width = tick_w;
-        dsc.opa = LV_OPA_COVER;
-        lv_point_t pts[] = {{(lv_coord_t)x1, (lv_coord_t)y1}, {(lv_coord_t)x2, (lv_coord_t)y2}};
-        lv_canvas_draw_line(bg_canvas, pts, 2, &dsc);
-
         if (major) {
             lv_obj_t *num = lv_label_create(screen);
-            lv_obj_set_style_text_color(num, lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_text_color(num, app_primary_text_color(app), 0);
             lv_obj_set_style_text_font(num, &lv_font_montserrat_40, 0);
 
             char nbuf[8];
@@ -329,13 +345,13 @@ lv_obj_t *create_gauge_screen(AppContext *app) {
     }
 
     app->gauge.psi_value_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(app->gauge.psi_value_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(app->gauge.psi_value_label, app_primary_text_color(app), 0);
     lv_obj_set_style_text_font(app->gauge.psi_value_label, &lv_font_montserrat_48, 0);
     lv_obj_align(app->gauge.psi_value_label, LV_ALIGN_BOTTOM_MID, 0, -72);
     lv_label_set_text(app->gauge.psi_value_label, "0.0");
 
     app->gauge.psi_unit_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(app->gauge.psi_unit_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(app->gauge.psi_unit_label, app_primary_text_color(app), 0);
     lv_obj_set_style_text_font(app->gauge.psi_unit_label, &lv_font_montserrat_32, 0);
     lv_obj_align(app->gauge.psi_unit_label, LV_ALIGN_BOTTOM_MID, 0, -30);
     lv_label_set_text(app->gauge.psi_unit_label, "PSI");
@@ -355,7 +371,7 @@ lv_obj_t *create_gauge_screen(AppContext *app) {
     lv_obj_set_size(app->gauge.needle_pivot, 40, 40);
     lv_obj_set_pos(app->gauge.needle_pivot, AppConfig::CX - 20, AppConfig::CY - 20);
     lv_obj_set_style_radius(app->gauge.needle_pivot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(app->gauge.needle_pivot, lv_color_hex(0xFF1020), 0);
+    lv_obj_set_style_bg_color(app->gauge.needle_pivot, app_gauge_needle_color(app), 0);
     lv_obj_set_style_border_width(app->gauge.needle_pivot, 0, 0);
     lv_obj_set_style_pad_all(app->gauge.needle_pivot, 0, 0);
 

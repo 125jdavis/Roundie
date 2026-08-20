@@ -1,5 +1,9 @@
 #include "can_bus.h"
 
+bool can_is_recent(uint32_t now_ms, uint32_t last_ms, uint32_t timeout_ms) {
+    return last_ms > 0 && (now_ms - last_ms) < timeout_ms;
+}
+
 static twai_timing_config_t can_timing_config_for_profile(CanBitrateProfile profile) {
     switch (profile) {
         case CAN_RATE_1M: return TWAI_TIMING_CONFIG_1MBITS();
@@ -41,8 +45,6 @@ const char *can_database_text(CanDatabase database) {
     switch (database) {
         case CAN_DB_HALTECH_PROTOCOL: return "Haltech Protocol";
         case CAN_DB_DANIEL_IKE_GAUGE: return "Daniel Ike Gauge";
-        case CAN_DB_MEGASQUIRT_PLACEHOLDER: return "Megasquirt (TODO)";
-        case CAN_DB_OBD2_PLACEHOLDER: return "OBD2 (TODO)";
         default: return "Unknown";
     }
 }
@@ -51,8 +53,6 @@ static CanBitrateProfile can_default_rate_for_database(CanDatabase database) {
     switch (database) {
         case CAN_DB_DANIEL_IKE_GAUGE: return CAN_RATE_500K;
         case CAN_DB_HALTECH_PROTOCOL:
-        case CAN_DB_MEGASQUIRT_PLACEHOLDER:
-        case CAN_DB_OBD2_PLACEHOLDER:
         default:
             return CAN_RATE_1M;
     }
@@ -64,7 +64,7 @@ static bool haltech_process_frame(AppContext *app, const twai_message_t &msg, ui
     if (msg.extd || msg.rtr) return false;
 
     switch (msg.identifier) {
-        case 0x360:
+        case CanFrameId::ENGINE_PRIMARY:
             if (msg.data_length_code < 6) return false;
             ht.rpm = be16(msg.data + 0);
             ht.map_kpa_abs = be16(msg.data + 2) * 0.1f;
@@ -72,33 +72,33 @@ static bool haltech_process_frame(AppContext *app, const twai_message_t &msg, ui
             ht.last_0x360_ms = now_ms;
             return true;
 
-        case 0x361:
+        case CanFrameId::PRESSURES:
             if (msg.data_length_code < 4) return false;
             ht.fuel_press_kpa = be16(msg.data + 0) * 0.1f - AppConfig::ATMOSPHERIC_KPA;
             ht.oil_press_kpa = be16(msg.data + 2) * 0.1f - AppConfig::ATMOSPHERIC_KPA;
             ht.last_0x361_ms = now_ms;
             break;
 
-        case 0x371:
+        case CanFrameId::FUEL_FLOW:
             if (msg.data_length_code < 2) return false;
             ht.fuel_flow_cc_min = be16(msg.data + 0);
             ht.last_0x371_ms = now_ms;
             break;
 
-        case 0x368:
+        case CanFrameId::LAMBDAS:
             if (msg.data_length_code < 4) return false;
             ht.lambda1 = be16(msg.data + 0) * 0.001f;
             ht.lambda2 = be16(msg.data + 2) * 0.001f;
             ht.last_0x368_ms = now_ms;
             break;
 
-        case 0x370:
+        case CanFrameId::WHEEL_SPEED:
             if (msg.data_length_code < 2) return false;
             ht.wheel_speed_kph = be16(msg.data + 0) * 0.1f;
             ht.last_0x370_ms = now_ms;
             break;
 
-        case 0x372:
+        case CanFrameId::VOLTS_TARGET_BARO:
             if (msg.data_length_code < 8) return false;
             ht.battery_volts = be16(msg.data + 0) * 0.1f;
             ht.target_boost_kpa = be16(msg.data + 4) * 0.1f;
@@ -106,25 +106,25 @@ static bool haltech_process_frame(AppContext *app, const twai_message_t &msg, ui
             ht.last_0x372_ms = now_ms;
             break;
 
-        case 0x376:
+        case CanFrameId::AMBIENT_TEMP:
             if (msg.data_length_code < 2) return false;
             ht.ambient_temp_c = kelvin_to_c(be16(msg.data + 0) * 0.1f);
             ht.last_0x376_ms = now_ms;
             break;
 
-        case 0x36B:
+        case CanFrameId::LATERAL_G:
             if (msg.data_length_code < 8) return false;
             ht.lateral_g_ms2 = sbe16(msg.data + 6) * 0.1f;
             ht.last_0x36B_ms = now_ms;
             break;
 
-        case 0x36E:
+        case CanFrameId::LONGITUDINAL_G:
             if (msg.data_length_code < 8) return false;
             ht.longitudinal_g_ms2 = sbe16(msg.data + 6) * 0.1f;
             ht.last_0x36E_ms = now_ms;
             break;
 
-        case 0x3E0:
+        case CanFrameId::TEMPS:
             if (msg.data_length_code < 8) return false;
             ht.coolant_temp_c = kelvin_to_c(be16(msg.data + 0) * 0.1f);
             ht.air_temp_c = kelvin_to_c(be16(msg.data + 2) * 0.1f);
@@ -133,7 +133,7 @@ static bool haltech_process_frame(AppContext *app, const twai_message_t &msg, ui
             ht.last_0x3E0_ms = now_ms;
             break;
 
-        case 0x3E9:
+        case CanFrameId::TARGET_LAMBDA:
             if (msg.data_length_code < 6) return false;
             ht.target_lambda = be16(msg.data + 4) * 0.001f;
             ht.last_0x3E9_ms = now_ms;
@@ -152,7 +152,7 @@ static bool daniel_ike_process_frame(AppContext *app, const twai_message_t &msg,
     if (msg.rtr) return false;
 
     if (msg.extd) {
-        if (msg.identifier == 0x180) {
+        if (msg.identifier == CanFrameId::LAMBDA_EXT_DANIEL_IKE) {
             if (msg.data_length_code < 2) return false;
             ht.lambda1 = be16(msg.data + 0) * 0.0001f;
             ht.last_0x368_ms = now_ms;
@@ -161,7 +161,7 @@ static bool daniel_ike_process_frame(AppContext *app, const twai_message_t &msg,
     }
 
     switch (msg.identifier) {
-        case 0x360:
+        case CanFrameId::ENGINE_PRIMARY:
             if (msg.data_length_code < 6) return false;
             ht.rpm = be16(msg.data + 0);
             ht.map_kpa_abs = be16(msg.data + 2) * 0.1f;
@@ -169,26 +169,26 @@ static bool daniel_ike_process_frame(AppContext *app, const twai_message_t &msg,
             ht.last_0x360_ms = now_ms;
             return true;
 
-        case 0x361:
+        case CanFrameId::PRESSURES:
             if (msg.data_length_code < 2) return false;
             ht.fuel_press_kpa = be16(msg.data + 0) * 0.1f - 101.0f;
             ht.last_0x361_ms = now_ms;
             break;
 
-        case 0x370:
+        case CanFrameId::WHEEL_SPEED:
             if (msg.data_length_code < 2) return false;
             ht.wheel_speed_kph = be16(msg.data + 0) * 0.1f;
             ht.last_0x370_ms = now_ms;
             break;
 
-        case 0x372:
+        case CanFrameId::VOLTS_TARGET_BARO:
             if (msg.data_length_code < 6) return false;
             ht.battery_volts = be16(msg.data + 0) * 0.1f;
             ht.target_boost_kpa = be16(msg.data + 4) * 0.1f;
             ht.last_0x372_ms = now_ms;
             break;
 
-        case 0x3E0:
+        case CanFrameId::TEMPS:
             if (msg.data_length_code < 6) return false;
             ht.coolant_temp_c = be16(msg.data + 0) * 0.1f;
             ht.air_temp_c = be16(msg.data + 2) * 0.1f;
@@ -196,7 +196,7 @@ static bool daniel_ike_process_frame(AppContext *app, const twai_message_t &msg,
             ht.last_0x3E0_ms = now_ms;
             break;
 
-        case 0x3E1:
+        case CanFrameId::ECONOMY_TRIP:
             if (msg.data_length_code < 8) return false;
             ht.trip_distance_km = be16(msg.data + 0) * 0.1f;
             ht.inst_fuel_per_100km = be16(msg.data + 2) * 0.1f;
@@ -205,20 +205,20 @@ static bool daniel_ike_process_frame(AppContext *app, const twai_message_t &msg,
             ht.last_0x3E1_ms = now_ms;
             break;
 
-        case 0x3E4:
+        case CanFrameId::SHIFT_LIGHT:
             if (msg.data_length_code < 3) return false;
             // Daniel Ike CAN setup: 0x3E4, start bit 20, width 1 (CAN Aux 1 - Shift Light).
             ht.shift_light_active = bit_ms_first(msg.data, 20);
             ht.last_0x3E4_ms = now_ms;
             break;
 
-        case 0x3E9:
+        case CanFrameId::TARGET_LAMBDA:
             if (msg.data_length_code < 6) return false;
             ht.target_lambda = be16(msg.data + 4) * 0.001f;
             ht.last_0x3E9_ms = now_ms;
             break;
 
-        case 0x470:
+        case CanFrameId::GEAR:
             if (msg.data_length_code < 8) return false;
             ht.gear = (int8_t)msg.data[7];
             ht.last_0x470_ms = now_ms;
@@ -231,30 +231,12 @@ static bool daniel_ike_process_frame(AppContext *app, const twai_message_t &msg,
     return false;
 }
 
-static bool megasquirt_process_frame_placeholder(AppContext *app, const twai_message_t &msg, uint32_t now_ms) {
-    (void)app;
-    (void)msg;
-    (void)now_ms;
-    return false;
-}
-
-static bool obd2_process_frame_placeholder(AppContext *app, const twai_message_t &msg, uint32_t now_ms) {
-    (void)app;
-    (void)msg;
-    (void)now_ms;
-    return false;
-}
-
 static bool process_frame_by_database(AppContext *app, const twai_message_t &msg, uint32_t now_ms) {
     switch (app->can.can_database) {
         case CAN_DB_HALTECH_PROTOCOL:
             return haltech_process_frame(app, msg, now_ms);
         case CAN_DB_DANIEL_IKE_GAUGE:
             return daniel_ike_process_frame(app, msg, now_ms);
-        case CAN_DB_MEGASQUIRT_PLACEHOLDER:
-            return megasquirt_process_frame_placeholder(app, msg, now_ms);
-        case CAN_DB_OBD2_PLACEHOLDER:
-            return obd2_process_frame_placeholder(app, msg, now_ms);
         default:
             return false;
     }
@@ -342,8 +324,7 @@ void can_poll(AppContext *app, uint32_t now_ms) {
         return;
     }
 
-    if (app->can.boost_can_last_valid_ms == 0 ||
-        (now_ms - app->can.boost_can_last_valid_ms) > AppConfig::BOOST_CAN_TIMEOUT_MS) {
+    if (!can_is_recent(now_ms, app->can.boost_can_last_valid_ms, AppConfig::BOOST_CAN_TIMEOUT_MS)) {
         app->can.boost_psi = 0.0f;
     }
 

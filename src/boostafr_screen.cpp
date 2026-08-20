@@ -1,4 +1,5 @@
 #include "boostafr_screen.h"
+#include "can_bus.h"
 
 #include <limits.h>
 #include <math.h>
@@ -30,6 +31,7 @@ void boostafr_toggle_demo(AppContext *app, uint32_t now_ms) {
 }
 
 static void draw_triangle_marker_event(lv_event_t *event) {
+    AppContext *app = (AppContext *)lv_event_get_user_data(event);
     lv_draw_ctx_t *draw_ctx = lv_event_get_draw_ctx(event);
     lv_obj_t *obj = lv_event_get_target(event);
     lv_area_t coords;
@@ -46,7 +48,7 @@ static void draw_triangle_marker_event(lv_event_t *event) {
 
     lv_draw_rect_dsc_t dsc;
     lv_draw_rect_dsc_init(&dsc);
-    dsc.bg_color = lv_color_hex(0xFFFFFF);
+    dsc.bg_color = app ? app_primary_text_color(app) : lv_color_hex(0xFFFFFF);
     dsc.bg_opa = LV_OPA_COVER;
     dsc.border_width = 0;
 
@@ -70,8 +72,8 @@ static void tick_boostafr_arcs(lv_timer_t *timer) {
     auto set_boost_color_mode = [&](uint8_t mode) {
         if (mode == boost_color_mode) return;
         boost_color_mode = mode;
-        lv_color_t arc_color = (mode == 1) ? lv_color_hex(0xFF5A00) : lv_color_hex(0x10b8ff);
-        lv_color_t text_color = (mode == 1) ? lv_color_hex(0xFF5A00) : lv_color_hex(0xFFFFFF);
+        lv_color_t arc_color = (mode == 1) ? lv_color_hex(0xFF5A00) : app_bar_gauge_color2(app);
+        lv_color_t text_color = (mode == 1) ? lv_color_hex(0xFF5A00) : app_primary_text_color(app);
         lv_obj_set_style_arc_color(app->boostafr.map_arc, arc_color, LV_PART_INDICATOR);
         lv_obj_set_style_text_color(app->boostafr.psi_label, text_color, 0);
         lv_obj_set_style_text_color(app->boostafr.psi_title_label, text_color, 0);
@@ -80,8 +82,8 @@ static void tick_boostafr_arcs(lv_timer_t *timer) {
     auto set_afr_color_mode = [&](uint8_t mode) {
         if (mode == afr_color_mode) return;
         afr_color_mode = mode;
-        lv_color_t arc_color = (mode == 1) ? lv_color_hex(0xFF5A00) : lv_color_hex(0x20c870);
-        lv_color_t text_color = (mode == 1) ? lv_color_hex(0xFF5A00) : lv_color_hex(0xFFFFFF);
+        lv_color_t arc_color = (mode == 1) ? lv_color_hex(0xFF5A00) : app_bar_gauge_color1(app);
+        lv_color_t text_color = (mode == 1) ? lv_color_hex(0xFF5A00) : app_primary_text_color(app);
         lv_obj_set_style_arc_color(app->boostafr.afr_arc, arc_color, LV_PART_INDICATOR);
         lv_obj_set_style_text_color(app->boostafr.afr_label, text_color, 0);
         lv_obj_set_style_text_color(app->boostafr.afr_title_label, text_color, 0);
@@ -127,26 +129,26 @@ static void tick_boostafr_arcs(lv_timer_t *timer) {
         HaltechData &ht = app->can.ht;
         set_marker_hidden(app->boostafr.afr_target_marker, false, &afr_marker_hidden);
 
-        if (ht.last_0x360_ms > 0 && (now - ht.last_0x360_ms) < 1200) {
+        if (can_is_recent(now, ht.last_0x360_ms, 1200)) {
             map_psi_target = (ht.map_kpa_abs - AppConfig::ATMOSPHERIC_KPA) * AppConfig::KPA_TO_PSI;
         }
         map_psi_target = clampf(map_psi_target, AppConfig::BOOST_MIN, AppConfig::BOOST_MAX);
         float boost_kpa_gauge = map_psi_target / AppConfig::KPA_TO_PSI;
 
         float lambda_actual = 1.0f;
-        if (ht.last_0x368_ms > 0 && (now - ht.last_0x368_ms) < 1200) {
+        if (can_is_recent(now, ht.last_0x368_ms, 1200)) {
             lambda_actual = ht.lambda1;
         }
 
         float lambda_target = 1.0f;
-        if (ht.last_0x3E9_ms > 0 && (now - ht.last_0x3E9_ms) < 2500 && ht.target_lambda > 0.0f) {
+        if (can_is_recent(now, ht.last_0x3E9_ms, 2500) && ht.target_lambda > 0.0f) {
             lambda_target = ht.target_lambda;
         }
 
         afr_actual_target = clampf(lambda_actual * AppConfig::STOICH_AFR, AppConfig::AFR_MIN, AppConfig::AFR_MAX);
         float afr_target = clampf(lambda_target * AppConfig::STOICH_AFR, AppConfig::AFR_MIN, AppConfig::AFR_MAX);
 
-        bool rpm_active = ht.last_0x360_ms > 0 && (now - ht.last_0x360_ms) < 1200 && ht.rpm >= 1000;
+        bool rpm_active = can_is_recent(now, ht.last_0x360_ms, 1200) && ht.rpm >= 1000;
 
         float t = (afr_target - AppConfig::AFR_MIN) / (AppConfig::AFR_MAX - AppConfig::AFR_MIN);
         float angle_deg = arc_angle_for_t(AppConfig::AFR_ARC_START_DEG, AppConfig::AFR_ARC_END_DEG, t);
@@ -157,7 +159,7 @@ static void tick_boostafr_arcs(lv_timer_t *timer) {
         set_marker_pos_if_changed(app->boostafr.afr_target_marker, afr_marker_x, afr_marker_y,
                                   &last_afr_marker_x, &last_afr_marker_y);
 
-        bool target_boost_valid = ht.last_0x372_ms > 0 && (now - ht.last_0x372_ms) < 2500;
+        bool target_boost_valid = can_is_recent(now, ht.last_0x372_ms, 2500);
         if (target_boost_valid) {
             float target_psi = clampf(ht.target_boost_kpa * AppConfig::KPA_TO_PSI, AppConfig::BOOST_MIN, AppConfig::BOOST_MAX);
             float bt = (target_psi - AppConfig::BOOST_MIN) / (AppConfig::BOOST_MAX - AppConfig::BOOST_MIN);
@@ -245,7 +247,7 @@ static void tick_boostafr_labels(lv_timer_t *timer) {
     }
 
     float map_psi = 0.0f;
-    if (app->can.ht.last_0x360_ms > 0 && (now - app->can.ht.last_0x360_ms) < 1200) {
+    if (can_is_recent(now, app->can.ht.last_0x360_ms, 1200)) {
         map_psi = (app->can.ht.map_kpa_abs - AppConfig::ATMOSPHERIC_KPA) * AppConfig::KPA_TO_PSI;
     }
     map_psi = clampf(map_psi, AppConfig::BOOST_MIN, AppConfig::BOOST_MAX);
@@ -253,7 +255,7 @@ static void tick_boostafr_labels(lv_timer_t *timer) {
     lv_label_set_text(app->boostafr.psi_label, buf);
 
     float lambda_actual = 1.0f;
-    if (app->can.ht.last_0x368_ms > 0 && (now - app->can.ht.last_0x368_ms) < 1200) {
+    if (can_is_recent(now, app->can.ht.last_0x368_ms, 1200)) {
         lambda_actual = app->can.ht.lambda1;
     }
     float afr_actual = clampf(lambda_actual * AppConfig::STOICH_AFR, AppConfig::AFR_MIN, AppConfig::AFR_MAX);
@@ -279,7 +281,7 @@ lv_obj_t *create_boostafr_screen(AppContext *app) {
     lv_obj_set_style_arc_width(top_arc, 36, LV_PART_MAIN);
     lv_obj_set_style_arc_width(top_arc, 36, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(top_arc, lv_color_hex(0x3b3b3b), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(top_arc, lv_color_hex(0x10b8ff), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(top_arc, app_bar_gauge_color2(app), LV_PART_INDICATOR);
     lv_obj_set_style_opa(top_arc, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_opa(top_arc, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_opa(top_arc, LV_OPA_TRANSP, LV_PART_KNOB);
@@ -296,14 +298,14 @@ lv_obj_t *create_boostafr_screen(AppContext *app) {
     lv_obj_set_style_arc_width(bottom_arc, 36, LV_PART_MAIN);
     lv_obj_set_style_arc_width(bottom_arc, 36, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(bottom_arc, lv_color_hex(0x3b3b3b), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(bottom_arc, lv_color_hex(0x20c870), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(bottom_arc, app_bar_gauge_color1(app), LV_PART_INDICATOR);
     lv_obj_set_style_opa(bottom_arc, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_opa(bottom_arc, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_opa(bottom_arc, LV_OPA_TRANSP, LV_PART_KNOB);
     lv_obj_clear_flag(bottom_arc, LV_OBJ_FLAG_CLICKABLE);
 
     app->boostafr.psi_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(app->boostafr.psi_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(app->boostafr.psi_label, app_primary_text_color(app), 0);
     lv_obj_set_style_text_font(app->boostafr.psi_label, &lv_font_montserrat_medium_72, 0);
     lv_obj_set_width(app->boostafr.psi_label, 360);
     lv_obj_set_style_text_align(app->boostafr.psi_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -311,7 +313,7 @@ lv_obj_t *create_boostafr_screen(AppContext *app) {
     lv_label_set_text(app->boostafr.psi_label, "0.0");
 
     app->boostafr.psi_title_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(app->boostafr.psi_title_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(app->boostafr.psi_title_label, app_primary_text_color(app), 0);
     lv_obj_set_style_text_font(app->boostafr.psi_title_label, &lv_font_montserrat_32, 0);
     lv_obj_set_width(app->boostafr.psi_title_label, 320);
     lv_obj_set_style_text_align(app->boostafr.psi_title_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -319,7 +321,7 @@ lv_obj_t *create_boostafr_screen(AppContext *app) {
     lv_label_set_text(app->boostafr.psi_title_label, "PSI BOOST");
 
     app->boostafr.afr_title_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(app->boostafr.afr_title_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(app->boostafr.afr_title_label, app_primary_text_color(app), 0);
     lv_obj_set_style_text_font(app->boostafr.afr_title_label, &lv_font_montserrat_32, 0);
     lv_obj_set_width(app->boostafr.afr_title_label, 320);
     lv_obj_set_style_text_align(app->boostafr.afr_title_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -327,7 +329,7 @@ lv_obj_t *create_boostafr_screen(AppContext *app) {
     lv_label_set_text(app->boostafr.afr_title_label, "AFR");
 
     app->boostafr.afr_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(app->boostafr.afr_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(app->boostafr.afr_label, app_primary_text_color(app), 0);
     lv_obj_set_style_text_font(app->boostafr.afr_label, &lv_font_montserrat_medium_72, 0);
     lv_obj_set_width(app->boostafr.afr_label, 360);
     lv_obj_set_style_text_align(app->boostafr.afr_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -338,13 +340,13 @@ lv_obj_t *create_boostafr_screen(AppContext *app) {
     lv_obj_remove_style_all(app->boostafr.afr_target_marker);
     lv_obj_set_size(app->boostafr.afr_target_marker, 24, 24);
     lv_obj_set_pos(app->boostafr.afr_target_marker, AppConfig::CX - 12, AppConfig::CY + 180);
-    lv_obj_add_event_cb(app->boostafr.afr_target_marker, draw_triangle_marker_event, LV_EVENT_DRAW_MAIN, nullptr);
+    lv_obj_add_event_cb(app->boostafr.afr_target_marker, draw_triangle_marker_event, LV_EVENT_DRAW_MAIN, app);
 
     app->boostafr.boost_target_marker = lv_obj_create(screen);
     lv_obj_remove_style_all(app->boostafr.boost_target_marker);
     lv_obj_set_size(app->boostafr.boost_target_marker, 24, 24);
     lv_obj_set_pos(app->boostafr.boost_target_marker, AppConfig::CX - 12, AppConfig::CY - 200);
-    lv_obj_add_event_cb(app->boostafr.boost_target_marker, draw_triangle_marker_event, LV_EVENT_DRAW_MAIN, nullptr);
+    lv_obj_add_event_cb(app->boostafr.boost_target_marker, draw_triangle_marker_event, LV_EVENT_DRAW_MAIN, app);
     lv_obj_add_flag(app->boostafr.boost_target_marker, LV_OBJ_FLAG_HIDDEN);
 
     app->boostafr.arc_timer = lv_timer_create(tick_boostafr_arcs, AppConfig::BOOSTAFR_ARC_TICK_MS, app);

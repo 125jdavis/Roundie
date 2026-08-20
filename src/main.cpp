@@ -11,7 +11,7 @@ static AppContext app;
 void setup() {
     Serial.begin(115200);
 
-    if (!platform_init(&app)) {
+    if (!platform_init(&app, navigation_touchpad_read)) {
         while (true) {
             delay(1000);
         }

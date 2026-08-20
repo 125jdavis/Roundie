@@ -2,8 +2,6 @@
 
 #include <Wire.h>
 
-#include "navigation.h"
-
 static void my_rounder_cb(lv_disp_drv_t *disp_drv, lv_area_t *area) {
     LV_UNUSED(disp_drv);
     area->x1 = (area->x1 >> 1) << 1;
@@ -29,7 +27,7 @@ static void my_tick(void *arg) {
     lv_tick_inc(2);
 }
 
-bool platform_init(AppContext *app) {
+bool platform_init(AppContext *app, void (*touch_read_cb)(lv_indev_drv_t *, lv_indev_data_t *)) {
     Wire.begin(AppConfig::IIC_SDA, AppConfig::IIC_SCL);
     app->platform.prefs.begin("roundie", false);
 
@@ -118,7 +116,7 @@ bool platform_init(AppContext *app) {
     static lv_indev_drv_t indev_drv;
     lv_indev_drv_init(&indev_drv);
     indev_drv.type = LV_INDEV_TYPE_POINTER;
-    indev_drv.read_cb = navigation_touchpad_read;
+    indev_drv.read_cb = touch_read_cb;
     indev_drv.gesture_limit = 8;
     indev_drv.gesture_min_velocity = 12;
     indev_drv.user_data = app;
