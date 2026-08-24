@@ -464,11 +464,11 @@ struct ThemeState {
     uint32_t colors[COLOR_PARAMETER_COUNT] = {
         0xFFFFFF,
         0x7AB8F5,
-        0xEAEA00,
+        0xE4F005,
         0xFFFFFF,
-        0xEAEA00,
+        0xE4F005,
         0x256C8E,
-        0xFF4500,
+        0xFF2F14,
     };
 };
 

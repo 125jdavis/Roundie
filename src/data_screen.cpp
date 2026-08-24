@@ -301,14 +301,15 @@ static void position_value_label_left_for_overflow(lv_obj_t *label, lv_coord_t b
     if (available_w < 1) available_w = 1;
 
     lv_obj_set_width(label, available_w);
-    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
 
     if (text_w > available_w) {
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
         lv_coord_t shift = text_w - available_w + 6;
         lv_coord_t new_x = base_x - shift;
         if (new_x < 0) new_x = 0;
         lv_obj_set_x(label, new_x);
     } else {
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_x(label, base_x);
     }
 }

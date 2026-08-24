@@ -9,49 +9,62 @@
 
 namespace {
 
-static constexpr uint8_t PICKER_WHEEL_HUE_BINS = 12;
-static constexpr uint8_t PICKER_WHEEL_SHADE_BANDS = 3;
+static constexpr uint8_t PICKER_WHEEL_HUE_BINS = 22;
 static constexpr int PICKER_WHEEL_SIZE = 466;
-static constexpr int PICKER_WHEEL_OUTER_RADIUS = 232;
-static constexpr int PICKER_WHEEL_INNER_RADIUS = 112;
+static constexpr int PICKER_WHEEL_OUTER_RADIUS = 238;
+static constexpr int PICKER_WHEEL_INNER_RADIUS = 150;
 static constexpr lv_coord_t PICKER_CENTER_Y = 0;
-static constexpr uint32_t PICKER_DOUBLE_TAP_GAP_MS = 220;
-static constexpr int PICKER_DOUBLE_TAP_MAX_DIST_PX = 44;
-static constexpr int PICKER_WHITE_SWATCH_SIZE = 48;
-static constexpr int PICKER_WHITE_SWATCH_Y = -64;
-static const uint32_t kWheelPureHueHex[PICKER_WHEEL_HUE_BINS] = {
-    0xFF0000, // red
-    0xFF8000, // orange
-    0xFFFF00, // yellow
-    0x80FF00, // yellow-green
-    0x00FF00, // green
-    0x00FF80, // spring
-    0x00FFFF, // cyan
-    0x0080FF, // azure
-    0x0000FF, // blue
-    0x8000FF, // violet
-    0xFF00FF, // magenta
-    0xFF0080, // rose
+static constexpr int PICKER_POINTER_LENGTH = 24;
+static constexpr float PICKER_POINTER_HALF_ANGLE_DEG = 5.4f;
+static constexpr int PICKER_CENTER_ACTION_SIZE = 84;
+static constexpr int PICKER_CENTER_HUB_SIZE = 300;
+static constexpr int PICKER_CENTER_CHECK_Y = -82;
+static constexpr int PICKER_CENTER_LABEL_Y = 0;
+static constexpr int PICKER_CENTER_CANCEL_Y = 82;
+// Logical hue order around the wheel (red -> orange -> yellow -> green -> teal -> blue -> purple -> pink -> white)
+static const uint32_t kWheelPaletteHex[PICKER_WHEEL_HUE_BINS] = {
+    0xE31212,  // deep red
+    0xFF2F14,  // red orange
+    0xF54927,  // deep orange
+    0xF08205,  // orange
+    0xF5B027,  // yellow orange
+    0xFFCA29,  // yellow orange
+    0xF5DD27,  // yellow
+    0xE4F005,  // yellow
+    0xB5FC0F,  // yellow green
+    0xB8F257,  // lime green
+    0xABF779,  // light lime
+    0x22CC1F,  // green
+    0x27F5B0,  // teal
+    0x2DB595,  // sea green
+    0x21C297,  // dark teal
+    0x256C8E,  // teal blue
+    0x2568DB,  // blue
+    0x65C6F7,  // light blue
+    0x7AB8F5,  // light blue
+    0x8F37FA,  // purple
+    0xF02E99,  // neon lavender
+    0xFFFFFF,  // white
 };
-static constexpr uint8_t PICKER_DARK_SCALE_NUM = 56;   // ~56% of pure hue
-static constexpr uint8_t PICKER_LIGHT_BLEND_NUM = 46;  // ~46% toward white
-static uint32_t g_wheel_last_tap_ms = 0;
-static lv_point_t g_wheel_last_tap_pt = {0, 0};
-
-enum class PickerTapSource : uint8_t {
-    None = 0,
-    Wheel,
-    White,
-};
-
-static PickerTapSource g_picker_last_tap_source = PickerTapSource::None;
+static lv_obj_t *g_picker_check_line_a = nullptr;
+static lv_obj_t *g_picker_check_line_b = nullptr;
+static lv_point_t g_picker_check_pts_a[2] = {{18, 38}, {33, 53}};
+static lv_point_t g_picker_check_pts_b[2] = {{33, 53}, {57, 21}};
+static lv_point_t g_picker_x_pts_a[2] = {{20, 18}, {58, 56}};
+static lv_point_t g_picker_x_pts_b[2] = {{58, 18}, {20, 56}};
+static lv_point_t g_pointer_tip = {0, 0};
+static lv_point_t g_pointer_base_left = {0, 0};
+static lv_point_t g_pointer_base_right = {0, 0};
 
 static void build_picker_screen(AppContext *app);
 static void draw_discrete_wheel_event(lv_event_t *event);
+static void draw_pointer_event(lv_event_t *event);
 static void discrete_wheel_interaction_event(lv_event_t *event);
 static void sync_picker_preview_title_color(AppContext *app);
+static void sync_picker_pointer(AppContext *app);
 static void commit_picker_color(AppContext *app);
-static void picker_white_interaction_event(lv_event_t *event);
+static void picker_check_interaction_event(lv_event_t *event);
+static void picker_cancel_interaction_event(lv_event_t *event);
 static void picker_screen_gesture_event(lv_event_t *event);
 
 static const char *kParameterNames[COLOR_PARAMETER_COUNT] = {
@@ -83,30 +96,33 @@ static uint32_t color_to_hex24(lv_color_t color) {
     return lv_color_to32(color) & 0x00FFFFFFUL;
 }
 
-static lv_color_t wheel_band_color(uint8_t hue_bin, uint8_t band_idx) {
+static lv_color_t wheel_band_color(uint8_t hue_bin) {
     if (hue_bin >= PICKER_WHEEL_HUE_BINS) hue_bin = PICKER_WHEEL_HUE_BINS - 1;
-    if (band_idx >= PICKER_WHEEL_SHADE_BANDS) band_idx = PICKER_WHEEL_SHADE_BANDS - 1;
+    return lv_color_hex(kWheelPaletteHex[hue_bin]);
+}
 
-    uint32_t base_hex = kWheelPureHueHex[hue_bin];
-    uint8_t r = (uint8_t)((base_hex >> 16) & 0xFF);
-    uint8_t g = (uint8_t)((base_hex >> 8) & 0xFF);
-    uint8_t b = (uint8_t)(base_hex & 0xFF);
+static uint8_t nearest_wheel_bin(uint32_t color_hex) {
+    int r = (int)((color_hex >> 16) & 0xFF);
+    int g = (int)((color_hex >> 8) & 0xFF);
+    int b = (int)(color_hex & 0xFF);
 
-    if (band_idx == 1) {
-        return lv_color_make(r, g, b);
+    uint8_t best_bin = 0;
+    uint32_t best_dist = 0xFFFFFFFFUL;
+    for (uint8_t i = 0; i < PICKER_WHEEL_HUE_BINS; i++) {
+        uint32_t candidate = kWheelPaletteHex[i];
+        int cr = (int)((candidate >> 16) & 0xFF);
+        int cg = (int)((candidate >> 8) & 0xFF);
+        int cb = (int)(candidate & 0xFF);
+        int dr = r - cr;
+        int dg = g - cg;
+        int db = b - cb;
+        uint32_t dist = (uint32_t)(dr * dr + dg * dg + db * db);
+        if (dist < best_dist) {
+            best_dist = dist;
+            best_bin = i;
+        }
     }
-
-    if (band_idx == 0) {
-        uint8_t dr = (uint8_t)((r * PICKER_DARK_SCALE_NUM) / 100U);
-        uint8_t dg = (uint8_t)((g * PICKER_DARK_SCALE_NUM) / 100U);
-        uint8_t db = (uint8_t)((b * PICKER_DARK_SCALE_NUM) / 100U);
-        return lv_color_make(dr, dg, db);
-    }
-
-    uint8_t lr = (uint8_t)(r + ((255U - r) * PICKER_LIGHT_BLEND_NUM) / 100U);
-    uint8_t lg = (uint8_t)(g + ((255U - g) * PICKER_LIGHT_BLEND_NUM) / 100U);
-    uint8_t lb = (uint8_t)(b + ((255U - b) * PICKER_LIGHT_BLEND_NUM) / 100U);
-    return lv_color_make(lr, lg, lb);
+    return best_bin;
 }
 
 static bool color_close_hex(uint32_t a, uint32_t b, uint8_t tol) {
@@ -157,10 +173,8 @@ static lv_obj_t *current_demo_screen(AppContext *app) {
 static bool wheel_color_for_point(lv_obj_t *wheel, const lv_point_t &p, lv_color_t *out_color) {
     if (!wheel || !out_color) return false;
 
-    lv_area_t coords;
-    lv_obj_get_coords(wheel, &coords);
-    int cx = (coords.x1 + coords.x2) / 2;
-    int cy = (coords.y1 + coords.y2) / 2;
+    int cx = AppConfig::CX;
+    int cy = AppConfig::CY;
 
     int dx = p.x - cx;
     int dy = p.y - cy;
@@ -175,51 +189,33 @@ static bool wheel_color_for_point(lv_obj_t *wheel, const lv_point_t &p, lv_color
     if (hue_bin < 0) hue_bin = 0;
     if (hue_bin >= PICKER_WHEEL_HUE_BINS) hue_bin = PICKER_WHEEL_HUE_BINS - 1;
 
-    float band_w = (float)(PICKER_WHEEL_OUTER_RADIUS - PICKER_WHEEL_INNER_RADIUS) / (float)PICKER_WHEEL_SHADE_BANDS;
-    int shade_band = (int)floorf(((float)PICKER_WHEEL_OUTER_RADIUS - r) / band_w);
-    if (shade_band < 0) shade_band = 0;
-    if (shade_band >= PICKER_WHEEL_SHADE_BANDS) shade_band = PICKER_WHEEL_SHADE_BANDS - 1;
-
-    *out_color = wheel_band_color((uint8_t)hue_bin, (uint8_t)shade_band);
+    *out_color = wheel_band_color((uint8_t)hue_bin);
     return true;
 }
 
 static void draw_discrete_wheel_event(lv_event_t *event) {
-    lv_obj_t *obj = lv_event_get_target(event);
     lv_draw_ctx_t *draw_ctx = lv_event_get_draw_ctx(event);
 
-    lv_area_t coords;
-    lv_obj_get_coords(obj, &coords);
-    int cx = (coords.x1 + coords.x2) / 2;
-    int cy = (coords.y1 + coords.y2) / 2;
-    lv_point_t center = {(lv_coord_t)cx, (lv_coord_t)cy};
+    lv_point_t center = {(lv_coord_t)AppConfig::CX, (lv_coord_t)AppConfig::CY};
 
     float hue_step = 360.0f / (float)PICKER_WHEEL_HUE_BINS;
-    float band_w = (float)(PICKER_WHEEL_OUTER_RADIUS - PICKER_WHEEL_INNER_RADIUS) / (float)PICKER_WHEEL_SHADE_BANDS;
+    int radius = (PICKER_WHEEL_OUTER_RADIUS + PICKER_WHEEL_INNER_RADIUS) / 2;
+    int width = PICKER_WHEEL_OUTER_RADIUS - PICKER_WHEEL_INNER_RADIUS;
 
-    for (uint8_t b = 0; b < PICKER_WHEEL_SHADE_BANDS; b++) {
-        int outer = (int)lroundf((float)PICKER_WHEEL_OUTER_RADIUS - (float)b * band_w);
-        int inner = (int)lroundf((float)PICKER_WHEEL_OUTER_RADIUS - (float)(b + 1) * band_w);
-        int radius = (outer + inner) / 2;
-        int width = outer - inner;
-        if (width < 1) width = 1;
+    for (uint8_t h = 0; h < PICKER_WHEEL_HUE_BINS; h++) {
+        lv_color_t c = wheel_band_color(h);
 
-        for (uint8_t h = 0; h < PICKER_WHEEL_HUE_BINS; h++) {
-            lv_color_t c = wheel_band_color(h, b);
+        lv_draw_arc_dsc_t arc;
+        lv_draw_arc_dsc_init(&arc);
+        arc.color = c;
+        arc.width = (lv_coord_t)width;
+        arc.opa = LV_OPA_COVER;
+        arc.rounded = 0;
 
-            lv_draw_arc_dsc_t arc;
-            lv_draw_arc_dsc_init(&arc);
-            arc.color = c;
-            arc.width = (lv_coord_t)width;
-            arc.opa = LV_OPA_COVER;
-            arc.rounded = 0;
-
-            uint16_t start = (uint16_t)lroundf((float)h * hue_step);
-            uint16_t end = (uint16_t)lroundf((float)(h + 1) * hue_step);
-            lv_draw_arc(draw_ctx, &arc, &center, (uint16_t)radius, start, end);
-        }
+        uint16_t start = (uint16_t)lroundf((float)h * hue_step);
+        uint16_t end = (uint16_t)lroundf((float)(h + 1) * hue_step);
+        lv_draw_arc(draw_ctx, &arc, &center, (uint16_t)radius, start, end);
     }
-
 }
 
 static void discrete_wheel_interaction_event(lv_event_t *event) {
@@ -241,34 +237,59 @@ static void discrete_wheel_interaction_event(lv_event_t *event) {
     // Live preview while finger moves across the wheel.
     app->color_cfg.working_color = color_to_hex24(selected);
     sync_picker_preview_title_color(app);
-
-    if (code != LV_EVENT_CLICKED) return;
-
-    uint32_t now = lv_tick_get();
-    uint32_t tap_gap = now - g_wheel_last_tap_ms;
-    int dx = p.x - g_wheel_last_tap_pt.x;
-    int dy = p.y - g_wheel_last_tap_pt.y;
-    int dist_sq = dx * dx + dy * dy;
-    int max_dist_sq = PICKER_DOUBLE_TAP_MAX_DIST_PX * PICKER_DOUBLE_TAP_MAX_DIST_PX;
-
-    if (g_picker_last_tap_source == PickerTapSource::Wheel &&
-        g_wheel_last_tap_ms > 0 &&
-        tap_gap <= PICKER_DOUBLE_TAP_GAP_MS &&
-        dist_sq <= max_dist_sq) {
-        g_wheel_last_tap_ms = 0;
-        g_picker_last_tap_source = PickerTapSource::None;
-        commit_picker_color(app);
-        return;
-    }
-
-    g_wheel_last_tap_ms = now;
-    g_wheel_last_tap_pt = p;
-    g_picker_last_tap_source = PickerTapSource::Wheel;
+    sync_picker_pointer(app);
 }
 
 static void sync_picker_preview_title_color(AppContext *app) {
-    if (!app || !app->color_cfg.picker_title) return;
-    lv_obj_set_style_text_color(app->color_cfg.picker_title, lv_color_hex(app->color_cfg.working_color), 0);
+    if (!app) return;
+    // Label text stays white; only tint the check mark with the selected color.
+    if (g_picker_check_line_a) {
+        lv_obj_set_style_line_color(g_picker_check_line_a, lv_color_hex(app->color_cfg.working_color), 0);
+    }
+    if (g_picker_check_line_b) {
+        lv_obj_set_style_line_color(g_picker_check_line_b, lv_color_hex(app->color_cfg.working_color), 0);
+    }
+}
+
+static void sync_picker_pointer(AppContext *app) {
+    if (!app || !app->color_cfg.picker_colorwheel) return;
+
+    int cx = AppConfig::CX;
+    int cy = AppConfig::CY;
+
+    uint8_t bin = nearest_wheel_bin(app->color_cfg.working_color);
+    float step = 360.0f / (float)PICKER_WHEEL_HUE_BINS;
+    float angle_deg = (float)bin * step + (step * 0.5f);
+    float tip_rad = angle_deg * (float)M_PI / 180.0f;
+    float base_left_rad = (angle_deg - PICKER_POINTER_HALF_ANGLE_DEG) * (float)M_PI / 180.0f;
+    float base_right_rad = (angle_deg + PICKER_POINTER_HALF_ANGLE_DEG) * (float)M_PI / 180.0f;
+
+    // Equilateral triangle pointing outward: base at inner edge, tip at calibrated length.
+    int base_r = PICKER_WHEEL_INNER_RADIUS;
+    int tip_r = base_r + PICKER_POINTER_LENGTH;
+
+    g_pointer_tip.x = (lv_coord_t)lroundf((float)cx + cosf(tip_rad) * (float)tip_r);
+    g_pointer_tip.y = (lv_coord_t)lroundf((float)cy + sinf(tip_rad) * (float)tip_r);
+    g_pointer_base_left.x = (lv_coord_t)lroundf((float)cx + cosf(base_left_rad) * (float)base_r);
+    g_pointer_base_left.y = (lv_coord_t)lroundf((float)cy + sinf(base_left_rad) * (float)base_r);
+    g_pointer_base_right.x = (lv_coord_t)lroundf((float)cx + cosf(base_right_rad) * (float)base_r);
+    g_pointer_base_right.y = (lv_coord_t)lroundf((float)cy + sinf(base_right_rad) * (float)base_r);
+
+    lv_obj_invalidate(app->color_cfg.picker_colorwheel);
+}
+
+static void draw_pointer_event(lv_event_t *event) {
+    lv_draw_ctx_t *draw_ctx = lv_event_get_draw_ctx(event);
+
+    lv_point_t tri[3] = {g_pointer_tip, g_pointer_base_left, g_pointer_base_right};
+
+    lv_draw_rect_dsc_t dsc;
+    lv_draw_rect_dsc_init(&dsc);
+    dsc.bg_color = lv_color_hex(0x9C9C9C);
+    dsc.bg_opa = LV_OPA_COVER;
+    dsc.border_width = 0;
+
+    lv_draw_polygon(draw_ctx, &dsc, tri, 3);
 }
 
 static void commit_picker_color(AppContext *app) {
@@ -283,30 +304,21 @@ static void commit_picker_color(AppContext *app) {
     lv_scr_load(app->color_cfg.list_screen);
 }
 
-static void picker_white_interaction_event(lv_event_t *event) {
+static void picker_check_interaction_event(lv_event_t *event) {
     AppContext *app = (AppContext *)lv_event_get_user_data(event);
     if (!app) return;
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    commit_picker_color(app);
+}
 
-    lv_event_code_t code = lv_event_get_code(event);
-    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING && code != LV_EVENT_CLICKED) return;
+static void picker_cancel_interaction_event(lv_event_t *event) {
+    AppContext *app = (AppContext *)lv_event_get_user_data(event);
+    if (!app) return;
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
 
-    app->color_cfg.working_color = 0xFFFFFFUL;
-    sync_picker_preview_title_color(app);
-
-    if (code != LV_EVENT_CLICKED) return;
-
-    uint32_t now = lv_tick_get();
-    if (g_picker_last_tap_source == PickerTapSource::White &&
-        g_wheel_last_tap_ms > 0 &&
-        (now - g_wheel_last_tap_ms) <= PICKER_DOUBLE_TAP_GAP_MS) {
-        g_wheel_last_tap_ms = 0;
-        g_picker_last_tap_source = PickerTapSource::None;
-        commit_picker_color(app);
-        return;
-    }
-
-    g_wheel_last_tap_ms = now;
-    g_picker_last_tap_source = PickerTapSource::White;
+    app->color_cfg.visible = true;
+    app->color_cfg.picker_visible = false;
+    lv_scr_load(app->color_cfg.list_screen);
 }
 
 static void picker_screen_gesture_event(lv_event_t *event) {
@@ -317,8 +329,6 @@ static void picker_screen_gesture_event(lv_event_t *event) {
     if (!indev) return;
 
     if (lv_indev_get_gesture_dir(indev) == LV_DIR_TOP) {
-        g_wheel_last_tap_ms = 0;
-        g_picker_last_tap_source = PickerTapSource::None;
         app->color_cfg.visible = true;
         app->color_cfg.picker_visible = false;
         lv_scr_load(app->color_cfg.list_screen);
@@ -331,14 +341,13 @@ static void color_config_open_picker(AppContext *app, ColorParameter parameter) 
     }
 
     app->color_cfg.active_parameter = parameter;
-    app->color_cfg.working_color = app->theme.colors[parameter];
-    g_wheel_last_tap_ms = 0;
-    g_picker_last_tap_source = PickerTapSource::None;
+    app->color_cfg.working_color = kWheelPaletteHex[nearest_wheel_bin(app->theme.colors[parameter])];
 
     if (app->color_cfg.picker_title) {
         lv_label_set_text(app->color_cfg.picker_title, kParameterNames[parameter]);
     }
     sync_picker_preview_title_color(app);
+    sync_picker_pointer(app);
 
     if (app->color_cfg.picker_colorwheel) {
         lv_obj_invalidate(app->color_cfg.picker_colorwheel);
@@ -399,14 +408,13 @@ static void cancel_picker_event(lv_event_t *event) {
     lv_scr_load(app->color_cfg.list_screen);
 }
 
-static lv_obj_t *make_list_button(lv_obj_t *parent, const char *text, lv_event_cb_t cb, AppContext *app) {
+static lv_obj_t *make_list_button(lv_obj_t *parent, const char *text, lv_event_cb_t cb, AppContext *app, uint32_t bg_hex) {
     lv_obj_t *btn = lv_btn_create(parent);
-    lv_obj_set_size(btn, 352, 60);
-    lv_obj_set_style_radius(btn, 20, 0);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(0x0A0A0A), 0);
+    lv_obj_set_size(btn, 352, 66);
+    lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(bg_hex), 0);
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(btn, 2, 0);
-    lv_obj_set_style_border_color(btn, lv_color_hex(0x2D2D2D), 0);
+    lv_obj_set_style_border_width(btn, 0, 0);
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, app);
 
     lv_obj_t *label = lv_label_create(btn);
@@ -428,36 +436,32 @@ static void build_list_screen(AppContext *app) {
 
     lv_obj_t *title = lv_label_create(screen);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_40, 0);
     lv_label_set_text(title, "Configuration");
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 44);
 
     lv_obj_t *list = lv_obj_create(screen);
     app->color_cfg.list_container = list;
     lv_obj_set_size(list, 388, 356);
-    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 68);
-    lv_obj_set_style_bg_color(list, lv_color_hex(0x050505), 0);
+    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 98);
+    lv_obj_set_style_bg_color(list, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(list, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(list, 2, 0);
-    lv_obj_set_style_border_color(list, lv_color_hex(0x242424), 0);
-    lv_obj_set_style_radius(list, 18, 0);
-    lv_obj_set_style_pad_all(list, 10, 0);
-    lv_obj_set_style_pad_row(list, 10, 0);
+    lv_obj_set_style_border_width(list, 0, 0);
+    lv_obj_set_style_radius(list, 0, 0);
+    lv_obj_set_style_pad_all(list, 0, 0);
+    lv_obj_set_style_pad_row(list, 18, 0);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
 
     for (uint8_t i = 0; i < COLOR_PARAMETER_COUNT; i++) {
-        lv_obj_t *btn = make_list_button(list, kParameterNames[i], parameter_item_event, app);
+        lv_obj_t *btn = make_list_button(list, kParameterNames[i], parameter_item_event, app, 0x1e4d7a);
         (void)btn;
     }
 
-    lv_obj_t *reset_btn = make_list_button(list, "DEFAULT COLORS", reset_defaults_event, app);
-    lv_obj_set_style_bg_color(reset_btn, lv_color_hex(0x111111), 0);
-    lv_obj_set_style_border_color(reset_btn, lv_color_hex(0x4A4A4A), 0);
+    lv_obj_t *reset_btn = make_list_button(list, "DEFAULT COLORS", reset_defaults_event, app, 0x2a5c3d);
 
-    lv_obj_t *exit_btn = make_list_button(list, "EXIT", exit_config_event, app);
-    lv_obj_set_style_bg_color(exit_btn, lv_color_hex(0x101010), 0);
-    lv_obj_set_style_border_color(exit_btn, lv_color_hex(0x363636), 0);
+    lv_obj_t *exit_btn = make_list_button(list, "EXIT", exit_config_event, app, 0x5b3035);
 }
 
 static void build_picker_screen(AppContext *app) {
@@ -472,27 +476,75 @@ static void build_picker_screen(AppContext *app) {
 
     app->color_cfg.picker_colorwheel = lv_obj_create(screen);
     lv_obj_set_size(app->color_cfg.picker_colorwheel, PICKER_WHEEL_SIZE, PICKER_WHEEL_SIZE);
-    lv_obj_align(app->color_cfg.picker_colorwheel, LV_ALIGN_CENTER, 0, PICKER_CENTER_Y);
+    lv_obj_set_pos(app->color_cfg.picker_colorwheel, 0, 0);
     lv_obj_clear_flag(app->color_cfg.picker_colorwheel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_opa(app->color_cfg.picker_colorwheel, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(app->color_cfg.picker_colorwheel, 0, 0);
     lv_obj_set_style_pad_all(app->color_cfg.picker_colorwheel, 0, 0);
+    lv_obj_set_style_outline_width(app->color_cfg.picker_colorwheel, 0, 0);
+    lv_obj_set_style_shadow_width(app->color_cfg.picker_colorwheel, 0, 0);
     lv_obj_add_flag(app->color_cfg.picker_colorwheel, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(app->color_cfg.picker_colorwheel, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(app->color_cfg.picker_colorwheel, draw_discrete_wheel_event, LV_EVENT_DRAW_MAIN, app);
+    lv_obj_add_event_cb(app->color_cfg.picker_colorwheel, draw_pointer_event, LV_EVENT_DRAW_MAIN, app);
     lv_obj_add_event_cb(app->color_cfg.picker_colorwheel, discrete_wheel_interaction_event, LV_EVENT_ALL, app);
 
-    lv_obj_t *white_swatch = lv_obj_create(screen);
-    lv_obj_set_size(white_swatch, PICKER_WHITE_SWATCH_SIZE, PICKER_WHITE_SWATCH_SIZE);
-    lv_obj_align(white_swatch, LV_ALIGN_CENTER, 0, PICKER_WHITE_SWATCH_Y);
-    lv_obj_set_style_radius(white_swatch, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(white_swatch, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_bg_opa(white_swatch, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(white_swatch, 2, 0);
-    lv_obj_set_style_border_color(white_swatch, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_add_flag(white_swatch, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(white_swatch, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_add_event_cb(white_swatch, picker_white_interaction_event, LV_EVENT_ALL, app);
+    lv_obj_t *center_hub = lv_obj_create(screen);
+    lv_obj_set_size(center_hub, PICKER_CENTER_HUB_SIZE, PICKER_CENTER_HUB_SIZE);
+    lv_obj_align(center_hub, LV_ALIGN_CENTER, 0, PICKER_CENTER_Y);
+    lv_obj_set_style_radius(center_hub, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(center_hub, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(center_hub, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(center_hub, 0, 0);
+    lv_obj_clear_flag(center_hub, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *check_btn = lv_btn_create(screen);
+    lv_obj_set_size(check_btn, PICKER_CENTER_ACTION_SIZE, PICKER_CENTER_ACTION_SIZE);
+    lv_obj_align(check_btn, LV_ALIGN_CENTER, 0, PICKER_CENTER_CHECK_Y);
+    lv_obj_set_style_radius(check_btn, 0, 0);
+    lv_obj_set_style_bg_opa(check_btn, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(check_btn, 0, 0);
+    lv_obj_set_style_outline_width(check_btn, 0, 0);
+    lv_obj_set_style_shadow_width(check_btn, 0, 0);
+    lv_obj_set_style_pad_all(check_btn, 0, 0);
+    lv_obj_clear_flag(check_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(check_btn, picker_check_interaction_event, LV_EVENT_CLICKED, app);
+
+    g_picker_check_line_a = lv_line_create(check_btn);
+    lv_line_set_points(g_picker_check_line_a, g_picker_check_pts_a, 2);
+    lv_obj_set_style_line_width(g_picker_check_line_a, 8, 0);
+    lv_obj_set_style_line_rounded(g_picker_check_line_a, true, 0);
+    lv_obj_set_style_line_color(g_picker_check_line_a, lv_color_hex(0xFFFFFF), 0);
+
+    g_picker_check_line_b = lv_line_create(check_btn);
+    lv_line_set_points(g_picker_check_line_b, g_picker_check_pts_b, 2);
+    lv_obj_set_style_line_width(g_picker_check_line_b, 8, 0);
+    lv_obj_set_style_line_rounded(g_picker_check_line_b, true, 0);
+    lv_obj_set_style_line_color(g_picker_check_line_b, lv_color_hex(0xFFFFFF), 0);
+
+    lv_obj_t *cancel_btn = lv_btn_create(screen);
+    lv_obj_set_size(cancel_btn, PICKER_CENTER_ACTION_SIZE, PICKER_CENTER_ACTION_SIZE);
+    lv_obj_align(cancel_btn, LV_ALIGN_CENTER, 0, PICKER_CENTER_CANCEL_Y);
+    lv_obj_set_style_radius(cancel_btn, 0, 0);
+    lv_obj_set_style_bg_opa(cancel_btn, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(cancel_btn, 0, 0);
+    lv_obj_set_style_outline_width(cancel_btn, 0, 0);
+    lv_obj_set_style_shadow_width(cancel_btn, 0, 0);
+    lv_obj_set_style_pad_all(cancel_btn, 0, 0);
+    lv_obj_clear_flag(cancel_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(cancel_btn, picker_cancel_interaction_event, LV_EVENT_CLICKED, app);
+
+    lv_obj_t *x_line_a = lv_line_create(cancel_btn);
+    lv_line_set_points(x_line_a, g_picker_x_pts_a, 2);
+    lv_obj_set_style_line_width(x_line_a, 8, 0);
+    lv_obj_set_style_line_rounded(x_line_a, true, 0);
+    lv_obj_set_style_line_color(x_line_a, lv_color_hex(0xFFFFFF), 0);
+
+    lv_obj_t *x_line_b = lv_line_create(cancel_btn);
+    lv_line_set_points(x_line_b, g_picker_x_pts_b, 2);
+    lv_obj_set_style_line_width(x_line_b, 8, 0);
+    lv_obj_set_style_line_rounded(x_line_b, true, 0);
+    lv_obj_set_style_line_color(x_line_b, lv_color_hex(0xFFFFFF), 0);
 
     app->color_cfg.picker_value_slider = nullptr;
     app->color_cfg.picker_preview = nullptr;
@@ -502,10 +554,11 @@ static void build_picker_screen(AppContext *app) {
     lv_obj_set_style_text_font(app->color_cfg.picker_title, &lv_font_montserrat_24, 0);
     lv_obj_set_width(app->color_cfg.picker_title, 210);
     lv_obj_set_style_text_align(app->color_cfg.picker_title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(app->color_cfg.picker_title, LV_ALIGN_CENTER, 0, PICKER_CENTER_Y);
+    lv_obj_align(app->color_cfg.picker_title, LV_ALIGN_CENTER, 0, PICKER_CENTER_LABEL_Y);
     lv_label_set_long_mode(app->color_cfg.picker_title, LV_LABEL_LONG_WRAP);
     lv_label_set_text(app->color_cfg.picker_title, kParameterNames[0]);
     sync_picker_preview_title_color(app);
+    sync_picker_pointer(app);
 }
 
 }  // namespace
@@ -539,10 +592,10 @@ void theme_apply_runtime(AppContext *app) {
     }
 
     for (uint8_t i = 0; i < DEMO_SCREEN_COUNT; i++) {
+        if (i == DEMO_GFORCE) continue;
         apply_text_palette_recursive(app->nav.slots[i].screen, old_theme, app->theme);
     }
-    apply_text_palette_recursive(app->gforce.config_screen, old_theme, app->theme);
-    apply_text_palette_recursive(app->gforce.calibrate_screen, old_theme, app->theme);
+    // G-Force config and calibration screens keep static white text
 
     if (app->boostafr.map_arc) {
         lv_obj_set_style_arc_color(app->boostafr.map_arc, app_bar_gauge_color2(app), LV_PART_INDICATOR);
