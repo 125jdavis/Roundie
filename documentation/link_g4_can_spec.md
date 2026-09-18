@@ -16,10 +16,8 @@ the gauge's CAN debug screen before trusting decoded values.
 | Termination | 120Ω at both bus ends (ECU + gauge), single twisted pair |
 
 > **Firmware selection note:** `AppConfig::DEFAULT_CAN_DATABASE` in
-> [src/app_shared.h](../src/app_shared.h) currently defaults to
-> `CAN_DB_HALTECH_PROTOCOL`. It must be changed to `CAN_DB_DANIEL_IKE_GAUGE`
-> (and firmware rebuilt/reflashed) for this mapping to be used — the database
-> is fixed at boot and is not selectable at runtime.
+> [src/app_shared.h](../src/app_shared.h) is now set to
+> `CAN_DB_DANIEL_IKE_GAUGE`, so this mapping is active by default at boot.
 
 ## Frame layout
 
@@ -32,6 +30,7 @@ the gauge's CAN debug screen before trusting decoded values.
 | 0x370 | std | 0-1 | unsigned | y = x × 0.1 | Vehicle/Wheel Speed (km/h) |
 | 0x372 | std | 0-1 | unsigned | y = x × 0.1 | Battery Voltage (V) |
 | 0x372 | std | 4-5 | unsigned | y = x × 0.1 | Target Boost Level (kPa) |
+| 0x372 | std | 6-7 | unsigned | y = x × 0.1 | Barometric Pressure (kPa absolute) |
 | 0x3E0 | std | 0-1 | unsigned | y = x × 0.1 | Coolant Temperature (°C, direct — not Kelvin) |
 | 0x3E0 | std | 2-3 | unsigned | y = x × 0.1 | Air/Intake Temperature (°C) |
 | 0x3E0 | std | 4-5 | unsigned | y = x × 0.1 | Ambient Air Temperature (°C) |
@@ -41,6 +40,8 @@ the gauge's CAN debug screen before trusting decoded values.
 | 0x3E1 | std | 6-7 | unsigned | y = x × 0.1 | Trip Fuel Consumption (L/100km) |
 | 0x3E4 | std | bit 20 (MSB-first) | bool | 0 = Off, 1 = On | Shift Light Active |
 | 0x3E9 | std | 4-5 | unsigned | y = x × 0.001 | Target Lambda |
+| 0x470 | std | 0-1 | signed | y = x × 0.001 | Lateral acceleration, X (G) |
+| 0x470 | std | 2-3 | signed | y = x × 0.001 | Longitudinal acceleration, Y (G) |
 | 0x470 | std | 7 | signed (int8) | y = x | Gear (raw gear number) |
 | 0x180 | **extended (29-bit)** | 0-1 | unsigned | y = x × 0.0001 | Lambda 1 |
 

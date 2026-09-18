@@ -7,6 +7,7 @@
 static constexpr uint32_t DATA_FAST_TIMEOUT_MS = 1200;
 static constexpr uint32_t DATA_MED_TIMEOUT_MS = 2500;
 static constexpr uint32_t DATA_SLOW_TIMEOUT_MS = 3000;
+static constexpr uint32_t DATA_DRIVING_UPDATE_MS = 1000 / 12;
 static constexpr float FE_ARC_MAX_MPG = 40.0f;
 static constexpr int FE_BAR_X = 58;
 static constexpr int FE_BAR_Y = 230;
@@ -933,7 +934,7 @@ lv_obj_t *create_data_screen3(AppContext *app) {
     lv_obj_set_style_text_opa(app->data.s3_speed_val_label, LV_OPA_COVER, 0);
     app->data.s3_speed_unit_label = make_unit_label_at(app, screen, "MPH", 0, 0, 84);
 
-    app->data.timer3 = lv_timer_create(tick_data3, 200, app);
+    app->data.timer3 = lv_timer_create(tick_data3, DATA_DRIVING_UPDATE_MS, app);
     tick_data3(app->data.timer3);
     return screen;
 }

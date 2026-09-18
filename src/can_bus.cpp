@@ -182,9 +182,10 @@ static bool daniel_ike_process_frame(AppContext *app, const twai_message_t &msg,
             break;
 
         case CanFrameId::VOLTS_TARGET_BARO:
-            if (msg.data_length_code < 6) return false;
+            if (msg.data_length_code < 8) return false;
             ht.battery_volts = be16(msg.data + 0) * 0.1f;
             ht.target_boost_kpa = be16(msg.data + 4) * 0.1f;
+            ht.baro_kpa_abs = be16(msg.data + 6) * 0.1f;
             ht.last_0x372_ms = now_ms;
             break;
 
@@ -220,6 +221,8 @@ static bool daniel_ike_process_frame(AppContext *app, const twai_message_t &msg,
 
         case CanFrameId::GEAR:
             if (msg.data_length_code < 8) return false;
+            ht.lateral_g_ms2 = sbe16(msg.data + 0) * 0.001f * AppConfig::GFORCE_MS2_PER_G;
+            ht.longitudinal_g_ms2 = sbe16(msg.data + 2) * 0.001f * AppConfig::GFORCE_MS2_PER_G;
             ht.gear = (int8_t)msg.data[7];
             ht.last_0x470_ms = now_ms;
             break;
@@ -256,6 +259,7 @@ static void can_restart_driver(AppContext *app) {
     }
 
     twai_general_config_t general = TWAI_GENERAL_CONFIG_DEFAULT(AppConfig::CAN_TX_GPIO, AppConfig::CAN_RX_GPIO, TWAI_MODE_NORMAL);
+    general.rx_queue_len = AppConfig::CAN_RX_QUEUE_LENGTH;
     twai_timing_config_t timing = can_timing_config_for_profile(app->can.rate_profile);
     twai_filter_config_t filter = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 

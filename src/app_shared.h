@@ -83,6 +83,7 @@ static constexpr float BOOST_ALERT_KPA_DELTA = 20.0f;
 static constexpr float LAMBDA_LEAN_RATIO = 1.15f;
 static constexpr gpio_num_t CAN_TX_GPIO = GPIO_NUM_44;
 static constexpr gpio_num_t CAN_RX_GPIO = GPIO_NUM_43;
+static constexpr uint32_t CAN_RX_QUEUE_LENGTH = 128;
 static constexpr uint32_t CAN_AUTOSCAN_INTERVAL_MS = 2500;
 static constexpr bool CAN_AUTOSCAN_ENABLED = true;
 static constexpr uint32_t BOOT_SPLASH_PLAY_MS = 2000;
@@ -119,7 +120,7 @@ enum CanDatabase : uint8_t {
 };
 
 namespace AppConfig {
-static constexpr CanDatabase DEFAULT_CAN_DATABASE = CAN_DB_HALTECH_PROTOCOL;
+static constexpr CanDatabase DEFAULT_CAN_DATABASE = CAN_DB_DANIEL_IKE_GAUGE;
 }
 
 namespace CanFrameId {

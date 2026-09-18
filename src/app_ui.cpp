@@ -66,6 +66,7 @@ static const DemoScreen kActiveScreenOrder[] = {
     DEMO_DATA4,
     DEMO_DATA3,
     DEMO_DATA2,
+    DEMO_CANDBG,
     DEMO_GFORCE,
 };
 

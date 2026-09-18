@@ -152,6 +152,9 @@ static float normalize_g_from_ms2(float value_ms2) {
 
 static bool gforce_is_fresh(const AppContext *app, uint32_t now_ms) {
     const HaltechData &ht = app->can.ht;
+    if (app->can.can_database == CAN_DB_DANIEL_IKE_GAUGE) {
+        return can_is_recent(now_ms, ht.last_0x470_ms, AppConfig::GFORCE_CAN_TIMEOUT_MS);
+    }
     return can_is_recent(now_ms, ht.last_0x36B_ms, AppConfig::GFORCE_CAN_TIMEOUT_MS) &&
            can_is_recent(now_ms, ht.last_0x36E_ms, AppConfig::GFORCE_CAN_TIMEOUT_MS);
 }
